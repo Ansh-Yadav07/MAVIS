@@ -31,7 +31,7 @@ env/
 *.log
 
 # ML artifacts
-models/
+/models/
 checkpoints/
 *.pkl
 *.joblib
