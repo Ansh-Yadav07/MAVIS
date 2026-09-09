@@ -1,0 +1,40 @@
+# Dataset
+dataset/
+datasets/
+*.csv
+*.xlsx
+*.xls
+*.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Environment variables
+.env
+.env.*
+
+# Jupyter
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# ML artifacts
+models/
+checkpoints/
+*.pkl
+*.joblib
+*.h5
+*.pt
+*.pth
