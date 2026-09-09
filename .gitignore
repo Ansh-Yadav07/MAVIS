@@ -1,10 +1,7 @@
-# Dataset
-dataset/
-datasets/
-*.csv
-*.xlsx
-*.xls
-*.json
+# Local datasets and generated results
+/dataset/
+/datasets/
+/results/
 
 # Python
 __pycache__/
@@ -32,7 +29,7 @@ env/
 
 # ML artifacts
 /models/
-checkpoints/
+/checkpoints/
 *.pkl
 *.joblib
 *.h5
