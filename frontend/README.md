@@ -10,6 +10,10 @@ python3 -m http.server 8000 --directory frontend
 
 ES modules do not load from `file://`, so open it through any static server.
 
+### Deploying to Netlify
+
+`netlify.toml` at the repo root tells Netlify to publish `frontend/` with no build command. Connect the repo and leave the site's build settings empty (or set publish directory to `frontend`, build command blank). For a manual deploy, drag the `frontend` folder itself onto Netlify Drop, not the whole repo.
+
 ## What is real and what is sample
 
 Every number in the UI carries a tag that says where it came from.
