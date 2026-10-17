@@ -1,0 +1,118 @@
+/* MAVIS design tokens.
+   Layout concept: a dense analyst console. Fixed rail on the left, a mode strip that always
+   says where the data comes from, and asymmetric panel grids that lead with the one number
+   that matters on each screen.
+   Dark is the product's home. Light exists for printing-like review and bright rooms. */
+
+:root {
+  /* Surfaces: graphite with a faint cool bias toward the accent */
+  --bg: #0a0c0f;
+  --surface-1: #101317;
+  --surface-2: #151a1f;
+  --surface-3: #1b2128;
+  --surface-hover: #1f262e;
+  --line: #222932;
+  --line-strong: #2f3843;
+  --scrim: rgba(4, 6, 8, 0.66);
+
+  /* Ink */
+  --ink-1: #e7ebf0;
+  --ink-2: #a3adb9;
+  --ink-3: #7c8794;
+  --ink-inverse: #0a0c0f;
+
+  /* Accent: one restrained cyan, used for selection, focus and the "attack-labelled" share */
+  --accent: #4fc3e3;
+  --accent-ink: #8fdcf1;
+  --accent-wash: rgba(79, 195, 227, 0.1);
+  --accent-line: rgba(79, 195, 227, 0.35);
+
+  /* Severity (reserved: never reused for series) */
+  --sev-critical: #f2555f;
+  --sev-high: #f08a3c;
+  --sev-medium: #d9b443;
+  --sev-low: #8a9bb0;
+  --sev-none: #4c5764;
+  --ok: #3dba82;
+  --sev-critical-wash: rgba(242, 85, 95, 0.12);
+  --sev-high-wash: rgba(240, 138, 60, 0.12);
+  --sev-medium-wash: rgba(217, 180, 67, 0.12);
+  --sev-low-wash: rgba(138, 155, 176, 0.12);
+  --ok-wash: rgba(61, 186, 130, 0.12);
+
+  /* Detectors (categorical, fixed order, validated for CVD on both themes) */
+  --m-if: #5b8def;
+  --m-lof: #2c9e8d;
+  --m-ae: #a274e0;
+
+  /* Data marks */
+  --benign: #3a4552;
+  --grid: #1d232a;
+
+  /* Type */
+  --font-sans: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --fs-xs: 0.75rem;     /* 12px metadata */
+  --fs-sm: 0.8125rem;   /* 13px table body */
+  --fs-md: 0.875rem;    /* 14px body */
+  --fs-lg: 1rem;        /* 16px section titles */
+  --fs-xl: 1.25rem;     /* 20px page titles */
+  --fs-metric: 1.75rem; /* 28px secondary metrics */
+  --fs-hero: 2.75rem;   /* 44px the one headline number */
+
+  /* Space & shape */
+  --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 20px; --s-6: 24px; --s-8: 32px;
+  --r-1: 3px;
+  --r-2: 6px;
+  --r-3: 8px;
+  --rail-w: 224px;
+  --rail-w-collapsed: 60px;
+  --topbar-h: 56px;
+  --row-h: 40px;
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.6, 0, 0.3, 1);
+  --t-fast: 120ms;
+  --t-med: 220ms;
+  --t-slow: 420ms;
+
+  --shadow-pop: 0 12px 32px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--line-strong);
+  color-scheme: dark;
+}
+
+:root[data-density="compact"] { --row-h: 32px; }
+
+:root[data-appearance="light"] {
+  --bg: #f3f5f7;
+  --surface-1: #ffffff;
+  --surface-2: #f7f9fb;
+  --surface-3: #eef1f4;
+  --surface-hover: #e9eef2;
+  --line: #e1e6eb;
+  --line-strong: #cbd3db;
+  --scrim: rgba(20, 28, 36, 0.4);
+  --ink-1: #121820;
+  --ink-2: #48525e;
+  --ink-3: #5f6a77;
+  --ink-inverse: #ffffff;
+  --accent: #0b84a8;
+  --accent-ink: #076a88;
+  --accent-wash: rgba(11, 132, 168, 0.09);
+  --accent-line: rgba(11, 132, 168, 0.4);
+  --sev-critical: #d42f3c;
+  --sev-high: #c9631a;
+  --sev-medium: #9c7a0c;
+  --sev-low: #627389;
+  --sev-none: #a7b0ba;
+  --ok: #1d8a5a;
+  --sev-critical-wash: rgba(212, 47, 60, 0.09);
+  --sev-high-wash: rgba(201, 99, 26, 0.09);
+  --sev-medium-wash: rgba(156, 122, 12, 0.1);
+  --sev-low-wash: rgba(98, 115, 137, 0.1);
+  --ok-wash: rgba(29, 138, 90, 0.09);
+  --benign: #c3ccd5;
+  --grid: #edf0f3;
+  --shadow-pop: 0 12px 32px rgba(20, 28, 36, 0.14), 0 0 0 1px var(--line-strong);
+  color-scheme: light;
+}

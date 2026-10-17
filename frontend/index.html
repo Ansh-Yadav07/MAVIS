@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en" data-appearance="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MAVIS</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="MAVIS, the Multi-Attack Vector Intelligence System: an analyst console for ML-based network anomaly detection on CIC-IDS2017.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="styles/tokens.css">
+<link rel="stylesheet" href="styles/base.css">
+<link rel="stylesheet" href="styles/shell.css">
+<link rel="stylesheet" href="styles/components.css">
+<link rel="stylesheet" href="styles/charts.css">
+<link rel="stylesheet" href="styles/views.css">
+</head>
+<body>
+<!-- MAVIS:BODY:START -->
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="app" id="app" data-rail="expanded">
+  <aside class="rail" id="rail" aria-label="Primary"></aside>
+  <div class="rail-scrim" data-action="close-nav"></div>
+  <div class="main-col">
+    <header class="topbar" id="topbar"></header>
+    <div class="provenance" id="provenance" role="status" aria-live="polite"></div>
+    <main class="view" id="main" tabindex="-1"></main>
+  </div>
+</div>
+<div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+<div class="tooltip" id="tooltip" role="tooltip" hidden></div>
+<noscript><p style="padding:24px">MAVIS needs JavaScript to run.</p></noscript>
+<script type="module" src="src/main.js"></script>
+<!-- MAVIS:BODY:END -->
+</body>
+</html>
