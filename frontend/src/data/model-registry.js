@@ -1,0 +1,78 @@
+// Model facts transcribed from src/models/*.py. Keep in sync with that code.
+// Nothing here is a measured result: no model has been trained in this repository yet
+// (see reports/raw_data_profile.json -> scope).
+
+export const MODELS = [
+  {
+    id: 'if',
+    short: 'IF',
+    name: 'Isolation Forest',
+    className: 'MavisIsolationForest',
+    file: 'src/models/isolation_forest.py',
+    library: 'scikit-learn IsolationForest',
+    idea: 'Builds random trees that split the feature space. Flows that are isolated in very few splits are unusual.',
+    scoreName: 'Inverted decision function',
+    scoreFormula: 'score = −decision_function(x)',
+    scoreDirection: 'Higher is more anomalous. Above 0 means sklearn would call the flow an outlier.',
+    nativeThreshold: 0,
+    thresholdSource: 'sklearn offset (contamination="auto")',
+    params: [
+      ['n_estimators', '100'],
+      ['contamination', "'auto'"],
+      ['random_state', '42'],
+      ['n_jobs', '−1 (all cores)'],
+    ],
+    trainingNote: 'Trained on mostly benign traffic (semi-supervised).',
+    persistence: 'joblib',
+  },
+  {
+    id: 'lof',
+    short: 'LOF',
+    name: 'Local Outlier Factor',
+    className: 'MavisLOF',
+    file: 'src/models/lof.py',
+    library: 'scikit-learn LocalOutlierFactor (novelty=True)',
+    idea: 'Compares how dense a flow’s neighbourhood is with the density around its 20 nearest neighbours. Sparse pockets stand out.',
+    scoreName: 'Inverted decision function',
+    scoreFormula: 'score = −decision_function(x)',
+    scoreDirection: 'Higher is more anomalous. Above 0 means sklearn would call the flow an outlier.',
+    nativeThreshold: 0,
+    thresholdSource: 'sklearn offset (contamination="auto")',
+    params: [
+      ['n_neighbors', '20'],
+      ['contamination', "'auto'"],
+      ['metric', "'minkowski'"],
+      ['leaf_size', '30'],
+      ['novelty', 'True'],
+      ['max_train_samples', '30,000 (random subsample, seed 42)'],
+    ],
+    trainingNote: 'LOF is O(N²), so training data above 30,000 rows is subsampled.',
+    persistence: 'Not saved (neighbour tree would hold the training set)',
+  },
+  {
+    id: 'ae',
+    short: 'AE',
+    name: 'Deep Autoencoder',
+    className: 'MavisAutoencoder',
+    file: 'src/models/autoencoder.py',
+    library: 'PyTorch',
+    idea: 'Learns to compress and rebuild benign flows. Traffic it cannot rebuild well has a high reconstruction error.',
+    scoreName: 'Reconstruction error',
+    scoreFormula: 'score = mean((x − x̂)²) per flow',
+    scoreDirection: 'Higher is more anomalous. The code does not define a cut-off yet.',
+    nativeThreshold: null,
+    thresholdSource: 'Not defined in code',
+    params: [
+      ['architecture', 'd → 0.75d → 0.5d → 0.25d → 0.5d → 0.75d → d'],
+      ['activation', 'ReLU (linear output)'],
+      ['loss', 'MSE'],
+      ['optimizer', 'Adam, lr 1e-3'],
+      ['epochs', '20'],
+      ['batch_size', '256'],
+    ],
+    trainingNote: 'Trained on benign traffic only.',
+    persistence: 'torch state_dict',
+  },
+];
+
+export const modelById = Object.fromEntries(MODELS.map((m) => [m.id, m]));
