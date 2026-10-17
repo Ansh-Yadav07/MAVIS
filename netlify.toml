@@ -1,0 +1,6 @@
+# Netlify serves the static frontend as it is: there is no build step.
+# The repo root has no index.html, so without this Netlify publishes the
+# root and the site shows "Page not found".
+[build]
+  publish = "frontend"
+  command = ""
