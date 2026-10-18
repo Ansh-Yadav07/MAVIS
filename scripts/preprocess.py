@@ -22,7 +22,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('--raw-dir', default=None, type=Path,
                    help='folder with the CICFlowMeter CSVs, searched recursively (default: dataset/ or datasets/ in the repo)')
-    p.add_argument('--out-dir', default=ROOT / 'dataset' / 'processed', type=Path)
+    p.add_argument('--out-dir', default=None, type=Path, help='default: <raw-dir>/processed')
     p.add_argument('--mode', choices=['anomaly', 'supervised'], default='anomaly')
     p.add_argument('--benign-source', default='Monday', help="anomaly mode: train on benign rows of files whose name contains this")
     p.add_argument('--val-frac', type=float, default=0.15)
@@ -36,7 +36,8 @@ def main():
         a.raw_dir = next((d for d in (ROOT / 'dataset', ROOT / 'datasets') if d.is_dir()), None)
         if a.raw_dir is None:
             p.error(f"no dataset/ or datasets/ folder in {ROOT}; pass --raw-dir /path/to/csvs")
-    print(f"reading CSVs from {a.raw_dir}")
+    a.out_dir = a.out_dir or a.raw_dir / 'processed'
+    print(f"reading CSVs from {a.raw_dir}, writing to {a.out_dir}")
 
     report = run(a.raw_dir, a.out_dir, mode=a.mode, benign_source=a.benign_source, val_frac=a.val_frac,
                  test_frac=a.test_frac, drop_port=a.drop_port, max_rows_per_file=a.max_rows_per_file, seed=a.seed)

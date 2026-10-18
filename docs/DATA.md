@@ -43,7 +43,7 @@ its spellings to `_ALIASES` in `src/data/cic.py`.
 
 ```bash
 pip install -r requirements.txt
-python scripts/preprocess.py                       # anomaly mode -> dataset/processed/
+python scripts/preprocess.py                       # anomaly mode -> <data folder>/processed/
 python scripts/preprocess.py --mode supervised --out-dir dataset/processed_supervised
 python scripts/preprocess.py --max-rows-per-file 50000   # quick run on a small laptop
 ```
