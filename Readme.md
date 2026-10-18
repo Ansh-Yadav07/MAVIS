@@ -81,3 +81,15 @@ The outputs will then be combined into a MAVIS threat-analysis layer.
                                 │
                                 ▼
                          MAVIS Dashboard
+---
+
+## 🚀 Getting Started
+
+```bash
+pip install -r requirements.txt
+# put the CIC-IDS2017 CSVs under dataset/ (see docs/DATA.md)
+python scripts/preprocess.py        # clean, split and scale -> dataset/processed/
+python -m pytest tests
+```
+
+See [docs/DATA.md](docs/DATA.md) for the data sources, how to add your own captures, and every preprocessing step.

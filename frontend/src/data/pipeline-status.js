@@ -3,7 +3,7 @@
 
 export const PIPELINE = [
   { id: 'data', label: 'Dataset', detail: 'CIC-IDS2017 CSVs profiled', state: 'done', evidence: 'reports/raw_data_profile.json' },
-  { id: 'prep', label: 'Preprocessing', detail: 'Cleaning, scaling, feature selection', state: 'planned', evidence: 'Readme pipeline' },
+  { id: 'prep', label: 'Preprocessing', detail: 'Cleaning, splitting, scaling', state: 'code', evidence: 'src/data/, scripts/preprocess.py' },
   { id: 'models', label: 'Detectors', detail: 'IF · LOF · Autoencoder classes', state: 'code', evidence: 'src/models/' },
   { id: 'train', label: 'Training run', detail: 'No trained model or scores yet', state: 'planned', evidence: 'profile scope: "no models were trained"' },
   { id: 'fusion', label: 'Fusion / risk engine', detail: 'Score normalisation and fusion', state: 'planned', evidence: 'Readme: MAVIS Risk Engine' },
