@@ -1,53 +1,67 @@
-/* MAVIS design tokens.
-   Layout concept: a dense analyst console. Fixed rail on the left, a mode strip that always
-   says where the data comes from, and asymmetric panel grids that lead with the one number
-   that matters on each screen.
-   Dark is the product's home. Light exists for printing-like review and bright rooms. */
+/* MAVIS design tokens: "field instrument".
+   The console should feel like calibrated survey equipment, not a sci-fi dashboard:
+   warm paper surfaces, bottle-green ink for structure, one amber signal colour for the thing
+   that needs attention right now. No gradients, glows or glass. Severity and detector colours
+   are earthy and reserved for their meaning only.
+   Light (paper) is the default; dark is a warm "night shift" variant of the same palette. */
 
 :root {
-  /* Surfaces: graphite with a faint cool bias toward the accent */
-  --bg: #0a0c0f;
-  --surface-1: #101317;
-  --surface-2: #151a1f;
-  --surface-3: #1b2128;
-  --surface-hover: #1f262e;
-  --line: #222932;
-  --line-strong: #2f3843;
-  --scrim: rgba(4, 6, 8, 0.66);
+  /* Surfaces: survey paper */
+  --bg: #efebe3;
+  --surface-1: #fbf9f4;
+  --surface-2: #f5f2eb;
+  --surface-3: #eae5da;
+  --surface-hover: #e4ded1;
+  --line: #ddd6c8;
+  --line-strong: #c7bead;
+  --scrim: rgba(29, 33, 30, 0.42);
 
   /* Ink */
-  --ink-1: #e7ebf0;
-  --ink-2: #a3adb9;
-  --ink-3: #7c8794;
-  --ink-inverse: #0a0c0f;
+  --ink-1: #1d211e;
+  --ink-2: #4a4f48;
+  --ink-3: #686c63;
+  --ink-inverse: #fbf9f4;
 
-  /* Accent: one restrained cyan, used for selection, focus and the "attack-labelled" share */
-  --accent: #4fc3e3;
-  --accent-ink: #8fdcf1;
-  --accent-wash: rgba(79, 195, 227, 0.1);
-  --accent-line: rgba(79, 195, 227, 0.35);
+  /* Structure accent: bottle green (selection, focus, primary actions, links) */
+  --accent: #1f5f4a;
+  --accent-ink: #174a39;
+  --accent-wash: rgba(31, 95, 74, 0.09);
+  --accent-line: rgba(31, 95, 74, 0.38);
+
+  /* Signal: amber, only for "look here now" (live indicator, active nav marker, new alerts) */
+  --signal: #d99a1e;
+  --signal-ink: #8a5d00;
+  --signal-wash: rgba(217, 154, 30, 0.14);
+
+  /* Rail: deep green band with paper ink */
+  --rail-bg: #163a2e;
+  --rail-ink: #e9e4d6;
+  --rail-ink-2: #a9b8ac;
+  --rail-hover: #1e4a3b;
+  --rail-line: #24503f;
 
   /* Severity (reserved: never reused for series) */
-  --sev-critical: #f2555f;
-  --sev-high: #f08a3c;
-  --sev-medium: #d9b443;
-  --sev-low: #8a9bb0;
-  --sev-none: #4c5764;
-  --ok: #3dba82;
-  --sev-critical-wash: rgba(242, 85, 95, 0.12);
-  --sev-high-wash: rgba(240, 138, 60, 0.12);
-  --sev-medium-wash: rgba(217, 180, 67, 0.12);
-  --sev-low-wash: rgba(138, 155, 176, 0.12);
-  --ok-wash: rgba(61, 186, 130, 0.12);
+  --sev-critical: #a8322a;
+  --sev-high: #c8642b;
+  --sev-medium: #a7811b;
+  --sev-low: #5e7672;
+  --sev-none: #b9b2a4;
+  --ok: #3f7a4f;
+  --sev-critical-wash: rgba(168, 50, 42, 0.1);
+  --sev-high-wash: rgba(200, 100, 43, 0.1);
+  --sev-medium-wash: rgba(167, 129, 27, 0.12);
+  --sev-low-wash: rgba(94, 118, 114, 0.12);
+  --ok-wash: rgba(63, 122, 79, 0.1);
 
-  /* Detectors (categorical, fixed order, validated for CVD on both themes) */
-  --m-if: #5b8def;
-  --m-lof: #2c9e8d;
-  --m-ae: #a274e0;
+  /* Detectors + engine (categorical, fixed order) */
+  --m-if: #2d6a8a;
+  --m-lof: #6a7f2a;
+  --m-ae: #a2546b;
+  --m-engine: #1f5f4a;
 
   /* Data marks */
-  --benign: #3a4552;
-  --grid: #1d232a;
+  --benign: #cfc7b7;
+  --grid: #e6e0d4;
 
   /* Type */
   --font-sans: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
@@ -77,42 +91,54 @@
   --t-med: 220ms;
   --t-slow: 420ms;
 
-  --shadow-pop: 0 12px 32px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--line-strong);
-  color-scheme: dark;
+  --shadow-pop: 0 10px 28px rgba(40, 34, 20, 0.14), 0 0 0 1px var(--line-strong);
+  color-scheme: light;
 }
 
 :root[data-density="compact"] { --row-h: 32px; }
 
-:root[data-appearance="light"] {
-  --bg: #f3f5f7;
-  --surface-1: #ffffff;
-  --surface-2: #f7f9fb;
-  --surface-3: #eef1f4;
-  --surface-hover: #e9eef2;
-  --line: #e1e6eb;
-  --line-strong: #cbd3db;
-  --scrim: rgba(20, 28, 36, 0.4);
-  --ink-1: #121820;
-  --ink-2: #48525e;
-  --ink-3: #5f6a77;
-  --ink-inverse: #ffffff;
-  --accent: #0b84a8;
-  --accent-ink: #076a88;
-  --accent-wash: rgba(11, 132, 168, 0.09);
-  --accent-line: rgba(11, 132, 168, 0.4);
-  --sev-critical: #d42f3c;
-  --sev-high: #c9631a;
-  --sev-medium: #9c7a0c;
-  --sev-low: #627389;
-  --sev-none: #a7b0ba;
-  --ok: #1d8a5a;
-  --sev-critical-wash: rgba(212, 47, 60, 0.09);
-  --sev-high-wash: rgba(201, 99, 26, 0.09);
-  --sev-medium-wash: rgba(156, 122, 12, 0.1);
-  --sev-low-wash: rgba(98, 115, 137, 0.1);
-  --ok-wash: rgba(29, 138, 90, 0.09);
-  --benign: #c3ccd5;
-  --grid: #edf0f3;
-  --shadow-pop: 0 12px 32px rgba(20, 28, 36, 0.14), 0 0 0 1px var(--line-strong);
-  color-scheme: light;
+:root[data-appearance="dark"] {
+  --bg: #121412;
+  --surface-1: #181b18;
+  --surface-2: #1e221e;
+  --surface-3: #252a25;
+  --surface-hover: #2b312b;
+  --line: #2d332d;
+  --line-strong: #3b433b;
+  --scrim: rgba(6, 8, 6, 0.66);
+  --ink-1: #ece7dc;
+  --ink-2: #b3aea2;
+  --ink-3: #8f8b80;
+  --ink-inverse: #121412;
+  --accent: #7fbf9e;
+  --accent-ink: #a6d6bc;
+  --accent-wash: rgba(127, 191, 158, 0.1);
+  --accent-line: rgba(127, 191, 158, 0.36);
+  --signal: #e8b44a;
+  --signal-ink: #f0c873;
+  --signal-wash: rgba(232, 180, 74, 0.13);
+  --rail-bg: #0e110e;
+  --rail-ink: #e2ddd0;
+  --rail-ink-2: #9aa79c;
+  --rail-hover: #1a201a;
+  --rail-line: #242b24;
+  --sev-critical: #e2675c;
+  --sev-high: #e58a4a;
+  --sev-medium: #d4b04a;
+  --sev-low: #8fa39e;
+  --sev-none: #4a524a;
+  --ok: #6fbf85;
+  --sev-critical-wash: rgba(226, 103, 92, 0.13);
+  --sev-high-wash: rgba(229, 138, 74, 0.12);
+  --sev-medium-wash: rgba(212, 176, 74, 0.12);
+  --sev-low-wash: rgba(143, 163, 158, 0.12);
+  --ok-wash: rgba(111, 191, 133, 0.12);
+  --m-if: #6aa6c8;
+  --m-lof: #a3b654;
+  --m-ae: #d08aa0;
+  --m-engine: #7fbf9e;
+  --benign: #3a423a;
+  --grid: #222722;
+  --shadow-pop: 0 12px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--line-strong);
+  color-scheme: dark;
 }

@@ -51,7 +51,8 @@ def normalise_flows(raw):
 
     labels = None
     if LABEL in df.columns:
-        labels = df[LABEL].astype(str).map(clean_label).map(attack_category)
+        context['label'] = df[LABEL].astype(str).map(clean_label).values
+        labels = context['label'].map(attack_category)
 
     quality = {
         'rows': int(len(df)),
@@ -133,15 +134,19 @@ def _insights(flows, incidents, drift, quality, n):
     return tips
 
 
-def analyze(engine, raw, max_explanations=200):
-    """Full analysis of a raw flow DataFrame. Returns (report dict, per-flow DataFrame)."""
+def analyze(engine, raw, max_explanations=200, internals=None):
+    """Full analysis of a raw flow DataFrame. Returns (report dict, per-flow DataFrame).
+
+    Pass a dict as `internals` to also receive the scaled features (X), the raw model scores,
+    the unscaled features and the context columns, e.g. to build the frontend payload."""
     feats, context, labels, quality = normalise_flows(raw)
     if feats.empty:
         return {'summary': {'flows': 0}, 'data_quality': quality, 'incidents': [], 'top_alerts': [],
                 'insights': ['Input contained no flows.'], 'drift': {'status': 'insufficient-data'}}, pd.DataFrame()
 
     X = engine.preprocessor.transform(feats)[engine.features]
-    flows = engine.score(X)
+    model_raw = engine.model_scores(X)
+    flows = engine.score(X, raw=model_raw)
     normal = (flows['verdict'] == 'normal').to_numpy()
 
     top = flows[~normal].sort_values('risk_score', ascending=False).head(max_explanations)
@@ -171,6 +176,8 @@ def analyze(engine, raw, max_explanations=200):
               'data_quality': quality, 'insights': _insights(flows, incidents, drift, quality, len(flows))}
     if labels is not None:
         report['ground_truth'] = evaluate(flows, labels.to_numpy())
+    if internals is not None:
+        internals.update(X=X, raw_scores=model_raw, features=feats, context=context)
     flows = flows.join(context)
     return report, flows
 

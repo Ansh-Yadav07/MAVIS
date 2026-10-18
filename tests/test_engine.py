@@ -123,6 +123,6 @@ def test_analyze_empty_and_unlabelled(fitted):
 def test_drift_detects_shifted_traffic(fitted):
     eng, X, y, *_ = fitted
     benign = X[y == 'Benign']
-    assert eng.drift(benign, np.ones(len(benign), bool))['status'] == 'stable'
+    assert eng.drift(benign, np.ones(len(benign), bool), min_rows=500)['status'] == 'stable'
     shifted = benign + 3.0
-    assert eng.drift(shifted, np.ones(len(benign), bool))['status'] == 'retrain-recommended'
+    assert eng.drift(shifted, np.ones(len(benign), bool), min_rows=500)['status'] == 'retrain-recommended'

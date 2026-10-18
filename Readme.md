@@ -88,8 +88,16 @@ The outputs will then be combined into a MAVIS threat-analysis layer.
 ```bash
 pip install -r requirements.txt
 # put the CIC-IDS2017 CSVs under dataset/ (see docs/DATA.md)
-python scripts/preprocess.py        # clean, split and scale -> dataset/processed/
+python scripts/preprocess.py         # clean, split and scale      -> dataset/processed/
+python scripts/train_evaluate.py     # train IF, LOF, Autoencoder   -> results/models/, reports/evaluation_anomaly.json
+python scripts/build_engine.py       # build the MAVIS risk engine  -> results/engine/, reports/engine_evaluation.json
+python scripts/export_frontend.py    # engine output for the console -> frontend/data/mavis.json
+python scripts/serve.py              # open the console with live analysis at http://localhost:8000
 python -m pytest tests
 ```
+
+- **Analyse any capture from the terminal:** `python scripts/analyze.py flows.csv`
+- **Analyse in the browser:** run `python scripts/serve.py`, open *Analyze capture* and drop a CICFlowMeter CSV.
+- **Static site:** `frontend/` deploys to Netlify as is and shows the committed engine snapshot; live upload needs `serve.py`.
 
 See [docs/DATA.md](docs/DATA.md) for the data sources, how to add your own captures, and every preprocessing step.

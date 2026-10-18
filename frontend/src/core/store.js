@@ -1,10 +1,10 @@
-// App state: viewer preferences (kept in this browser) and analyst edits to sample events.
+// App state: viewer preferences (kept in this browser) and analyst edits to flows and incidents.
 // Storage can be unavailable (private windows, previews), so every access is guarded.
 
 const KEY = 'mavis.ui.v1';
 
 const DEFAULT_PREFS = {
-  appearance: 'dark',        // dark | light | system
+  appearance: 'light',       // light | dark | system
   density: 'comfortable',    // comfortable | compact
   motion: 'system',          // system | reduced
   rail: 'expanded',          // expanded | collapsed
@@ -13,6 +13,7 @@ const DEFAULT_PREFS = {
   notifyHigh: true,
   chartGrid: true,
   pageSize: 25,
+  alertBudget: null,         // false-positive budget; null = the engine's calibrated default
 };
 
 function load() {
@@ -57,5 +58,13 @@ export const store = {
   },
   subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
   // Transient UI state shared between views (not persisted)
-  session: { selectedFlow: null, threatFilters: null, networkFilters: null },
+  // session.day: selected capture day id ('mon'|'tue'|...), or null for all days. Views read it
+  //   with `store.session.day || undefined` and pass it as the `day` filter of flows()/summary()/etc.
+  //   Change it only through setSession() so the shell re-renders the current view.
+  // session.query: search text handed to the Event Explorer by the top-bar search.
+  session: { selectedFlow: null, threatFilters: null, networkFilters: null, day: null, query: '' },
+  setSession(key, value) {
+    this.session[key] = value;
+    listeners.forEach((fn) => fn({ type: 'session', key, value }));
+  },
 };

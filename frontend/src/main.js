@@ -1,22 +1,25 @@
 // MAVIS frontend entry: applies preferences, renders the shell, routes between views.
-import { $, mount, prefersReducedMotion } from './core/dom.js';
+import { $, html, mount, prefersReducedMotion } from './core/dom.js';
 import { store } from './core/store.js';
-import { defineRoute, startRouter, currentRoute, render as rerender } from './core/router.js';
+import { defineRoute, startRouter, currentRoute, getRoutes, render as rerender } from './core/router.js';
 import { fmtInt } from './core/format.js';
 import { renderRail, renderTopbar, renderProvenance, bindShell } from './components/shell.js';
 import { installTooltips, closePopover } from './components/overlays.js';
 import { errorState } from './components/states.js';
+import { loadData } from './data/index.js';
 
 import overview from './views/overview.js';
 import network from './views/network.js';
 import threats from './views/threats.js';
 import explorer from './views/explorer.js';
+import investigations from './views/investigations.js';
+import analyze from './views/analyze.js';
 import models from './views/models.js';
 import dataset from './views/dataset.js';
 import reports from './views/reports.js';
 import settings from './views/settings.js';
 
-const VIEWS = { overview, network, threats, explorer, models, dataset, reports, settings };
+const VIEWS = { overview, threats, investigations, network, models, explorer, dataset, reports, analyze, settings };
 Object.entries(VIEWS).forEach(([id, v]) => defineRoute(id, v));
 
 const media = window.matchMedia('(prefers-color-scheme: light)');
@@ -59,6 +62,7 @@ function show(route, view) {
   cleanup = null;
   const main = $('#main');
   renderRail(route.id);
+  renderProvenance();
   renderTopbar(route.id, view.crumb?.(route.param));
   document.title = route.id === 'overview' ? 'MAVIS' : `${view.title} · MAVIS`;
   main.classList.remove('view-enter');
@@ -71,7 +75,7 @@ function show(route, view) {
     cleanup = view.render(host, route.param) || null;
   } catch (err) {
     console.error(err);
-    mount(main, errorState({ text: `${err.message}. Reload the page; if it keeps happening, the sample data module may have failed to load.` }));
+    mount(main, errorState({ text: `${err.message}. Reload the page; if it keeps happening, check the browser console.` }));
   }
   animateCounts(main);
   window.scrollTo({ top: 0, behavior: 'instant' in window ? 'instant' : 'auto' });
@@ -80,20 +84,42 @@ function show(route, view) {
   }
 }
 
-applyPrefs();
-renderProvenance();
-installTooltips(document.body);
-bindShell(() => { applyPrefs(); renderTopbar(currentRoute().id, VIEWS[currentRoute().id].crumb?.(currentRoute().param)); });
+function renderCurrent() {
+  const r = currentRoute();
+  if (r) show(r, getRoutes().get(r.id));
+}
 
-// Re-render the current view when analyst edits or prefs change something it shows.
-store.subscribe((ev) => {
-  if (ev.type === 'pref') applyPrefs();
-  if (ev.type === 'edit' || ev.type === 'notes') {
-    const r = currentRoute();
-    renderRail(r.id);
-    renderTopbar(r.id, VIEWS[r.id].crumb?.(r.param));
+async function boot() {
+  applyPrefs();
+  installTooltips(document.body);
+  const main = $('#main');
+  mount(main, html`<div class="view-loading" role="status">Loading engine snapshot…</div>`);
+  try {
+    await loadData();
+  } catch (err) {
+    console.error(err);
+    mount(main, errorState({ title: 'Could not load the engine snapshot', text: err.message, retry: true }));
+    main.addEventListener('click', (ev) => { if (ev.target.closest('[data-action="retry"]')) location.reload(); });
+    return;
   }
-});
+  renderProvenance();
+  bindShell(() => { applyPrefs(); renderTopbar(currentRoute().id, VIEWS[currentRoute().id].crumb?.(currentRoute().param)); });
 
-startRouter(show);
+  // Re-render the current view when analyst edits, prefs, the capture day or the alert budget change.
+  store.subscribe((ev) => {
+    if (ev.type === 'pref') {
+      applyPrefs();
+      if (ev.key === 'alertBudget' || ev.key === '*') renderCurrent();
+    }
+    if (ev.type === 'session' && ev.key === 'day') renderCurrent();
+    if (ev.type === 'edit' || ev.type === 'notes') {
+      const r = currentRoute();
+      renderRail(r.id);
+      renderTopbar(r.id, VIEWS[r.id].crumb?.(r.param));
+    }
+  });
+  startRouter(show);
+}
+
+boot();
 export { rerender };

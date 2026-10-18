@@ -1,6 +1,7 @@
-// Model facts transcribed from src/models/*.py. Keep in sync with that code.
-// Nothing here is a measured result: no model has been trained in this repository yet
-// (see reports/raw_data_profile.json -> scope).
+// Descriptions of the detectors and the fusion step, matched to src/models/*.py and
+// src/engine/engine.py. Actual hyperparameters, cut-offs and metrics are read at run time from
+// the exported snapshot (engine().params, engine().cutoffs, evaluation()); the text here only
+// explains what each part does.
 
 export const MODELS = [
   {
@@ -10,19 +11,11 @@ export const MODELS = [
     className: 'MavisIsolationForest',
     file: 'src/models/isolation_forest.py',
     library: 'scikit-learn IsolationForest',
-    idea: 'Builds random trees that split the feature space. Flows that are isolated in very few splits are unusual.',
-    scoreName: 'Inverted decision function',
+    idea: 'Builds random trees that split the feature space. A flow that is cut off from the rest in only a few splits is unusual. Each tree sees 75% of the benign rows and half of the features.',
+    scoreName: 'Negated decision function',
     scoreFormula: 'score = −decision_function(x)',
-    scoreDirection: 'Higher is more anomalous. Above 0 means sklearn would call the flow an outlier.',
-    nativeThreshold: 0,
-    thresholdSource: 'sklearn offset (contamination="auto")',
-    params: [
-      ['n_estimators', '100'],
-      ['contamination', "'auto'"],
-      ['random_state', '42'],
-      ['n_jobs', '−1 (all cores)'],
-    ],
-    trainingNote: 'Trained on mostly benign traffic (semi-supervised).',
+    scoreDirection: 'Higher is more anomalous. The engine does not use sklearn’s own boundary: it ranks the score against benign flows (percentile).',
+    trainingNote: 'Fitted on benign traffic only (Monday capture).',
     persistence: 'joblib',
   },
   {
@@ -32,22 +25,12 @@ export const MODELS = [
     className: 'MavisLOF',
     file: 'src/models/lof.py',
     library: 'scikit-learn LocalOutlierFactor (novelty=True)',
-    idea: 'Compares how dense a flow’s neighbourhood is with the density around its 20 nearest neighbours. Sparse pockets stand out.',
-    scoreName: 'Inverted decision function',
+    idea: 'Compares how dense a flow’s neighbourhood is with the density around its nearest benign neighbours. A flow in a sparse pocket stands out.',
+    scoreName: 'Negated decision function',
     scoreFormula: 'score = −decision_function(x)',
-    scoreDirection: 'Higher is more anomalous. Above 0 means sklearn would call the flow an outlier.',
-    nativeThreshold: 0,
-    thresholdSource: 'sklearn offset (contamination="auto")',
-    params: [
-      ['n_neighbors', '20'],
-      ['contamination', "'auto'"],
-      ['metric', "'minkowski'"],
-      ['leaf_size', '30'],
-      ['novelty', 'True'],
-      ['max_train_samples', '30,000 (random subsample, seed 42)'],
-    ],
-    trainingNote: 'LOF is O(N²), so training data above 30,000 rows is subsampled.',
-    persistence: 'Not saved (neighbour tree would hold the training set)',
+    scoreDirection: 'Higher is more anomalous; ranked against benign flows like the others.',
+    trainingNote: 'LOF cost grows with the stored training set, so training rows above 30,000 are randomly subsampled (seed 42).',
+    persistence: 'joblib (keeps the subsampled training set)',
   },
   {
     id: 'ae',
@@ -56,23 +39,35 @@ export const MODELS = [
     className: 'MavisAutoencoder',
     file: 'src/models/autoencoder.py',
     library: 'PyTorch',
-    idea: 'Learns to compress and rebuild benign flows. Traffic it cannot rebuild well has a high reconstruction error.',
+    idea: 'Learns to compress and rebuild benign flows through a narrow bottleneck. Traffic it cannot rebuild well has a high reconstruction error. The per-feature error also tells the analyst which features were off.',
     scoreName: 'Reconstruction error',
     scoreFormula: 'score = mean((x − x̂)²) per flow',
-    scoreDirection: 'Higher is more anomalous. The code does not define a cut-off yet.',
-    nativeThreshold: null,
-    thresholdSource: 'Not defined in code',
-    params: [
-      ['architecture', 'd → 0.75d → 0.5d → 0.25d → 0.5d → 0.75d → d'],
-      ['activation', 'ReLU (linear output)'],
-      ['loss', 'MSE'],
-      ['optimizer', 'Adam, lr 1e-3'],
-      ['epochs', '20'],
-      ['batch_size', '256'],
-    ],
-    trainingNote: 'Trained on benign traffic only.',
+    scoreDirection: 'Higher is more anomalous. MSE loss, Adam with cosine learning-rate decay.',
+    trainingNote: 'Trained on benign traffic only, with a validation split.',
     persistence: 'torch state_dict',
   },
 ];
 
 export const modelById = Object.fromEntries(MODELS.map((m) => [m.id, m]));
+
+// The part of the engine that is not an anomaly detector.
+export const CLASSIFIER = {
+  id: 'clf',
+  short: 'CLF',
+  name: 'Attack classifier',
+  file: 'src/engine/engine.py',
+  library: 'scikit-learn HistGradientBoostingClassifier',
+  idea: 'A gradient-boosted classifier recognises the attack families it was shown in labelled data. Its inputs are the scaled flow features plus the three detector percentiles, so it also learns when the detectors can be trusted.',
+  training: 'Benign rows are capped at 300,000. Rare families are padded with synthetic rows (SMOTE-style interpolation between same-class neighbours) up to 2,000 per class; class weights are the square root of inverse frequency.',
+  settings: [['max_iter', '300'], ['learning_rate', '0.1'], ['max_leaf_nodes', '63'], ['early_stopping', 'True (10% validation)']],
+};
+
+// How the pieces fit together, in order. Used by the ML Models and Settings views.
+export const FUSION_STEPS = [
+  ['Score', 'Each detector scores the flow in its own units.'],
+  ['Rank', 'Each score becomes a percentile of benign calibration flows, so the three share one 0 to 1 scale. A detector “votes” above its 99th benign percentile.'],
+  ['Combine', 'The anomaly score is the mean of the three percentiles, ranked again against benign flows. Averaging beat Fisher’s method, top-2 mean and max on this dataset.'],
+  ['Classify', 'The classifier returns a probability for every attack family and for benign.'],
+  ['Decide', 'Two paths share the alert budget. Known: attack probability above the calibrated threshold, named by the most likely family. Novel: combined anomaly percentile above its threshold, reported as “Novel”.'],
+  ['Rate', 'Risk = 100 × likelihood × (0.7 + 0.3 × impact of the family). Likelihood grows with attack probability and with how deep in the benign tail the flow sits.'],
+];

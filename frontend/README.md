@@ -14,24 +14,33 @@ ES modules do not load from `file://`, so open it through any static server.
 
 `netlify.toml` at the repo root tells Netlify to publish `frontend/` with no build command. Connect the repo and leave the site's build settings empty (or set publish directory to `frontend`, build command blank). For a manual deploy, drag the `frontend` folder itself onto Netlify Drop, not the whole repo.
 
-## What is real and what is sample
+## Where the data comes from
 
-Every number in the UI carries a tag that says where it came from.
+Everything the console shows is real:
 
-| Tag | Source | Files |
-|---|---|---|
-| **Measured** | `reports/raw_data_profile.json` (row counts, labels, missing and infinite values, duplicates, constant columns) | `src/data/dataset-profile.js` (generated) |
-| **From code** | Model classes and parameters in `src/models/*.py` | `src/data/model-registry.js` |
-| **Not built** | Stages described in the root Readme that have no code yet (preprocessing, training run, fusion / risk engine) | `src/data/pipeline-status.js` |
-| **Sample** | Flows, detector scores, severities, statuses and activity generated in the browser for design | `src/data/sample/events.js` |
+| Tag | Source |
+|---|---|
+| **Engine output** | `data/mavis.json`, written by `scripts/export_frontend.py`: the trained MAVIS engine run over every CIC-IDS2017 file. Full-file totals per capture, plus an exported subset of flows (alerts of every family, misses, false positives and normal traffic) with scores, verdicts and explanations. |
+| **Evaluated** | `reports/engine_evaluation.json`, `reports/evaluation_anomaly.json`: metrics on held-out flows, embedded in the same file. |
+| **Measured** | `reports/raw_data_profile.json` via `src/data/dataset-profile.js` (row counts, labels, missing values). |
+| **Your upload** | A CSV analysed live through `scripts/serve.py` (`POST /api/analyze`). Kept for the browser session only. |
 
-No model has been trained in this repository, so there are no real detections, scores or evaluation metrics. The UI never presents sample data as model output, and it never claims live capture: the Network Traffic replay is labelled as simulated.
+The public CIC-IDS2017 ML CSVs have no IP addresses or timestamps, so the console shows destination port/service and capture order instead and never invents either.
 
-Regenerate the measured profile after re-running the profiler:
+Regenerate after retraining:
 
 ```bash
-node frontend/tools/build-profile.mjs
+python scripts/build_engine.py && python scripts/export_frontend.py
+node frontend/tools/build-profile.mjs     # only if the raw profile changed
 ```
+
+Run with live analysis (upload a capture in the browser):
+
+```bash
+python scripts/serve.py      # serves frontend/ + /api on http://localhost:8000
+```
+
+The alert budget in the top bar re-applies thresholds the engine calibrated for 0.1 % … 5 % false positives, so verdicts change instantly without re-running models. Analyst edits (status, notes) and preferences stay in this browser's localStorage.
 
 ## Structure
 
@@ -48,26 +57,16 @@ src/
   main.js               preferences, routing, view mounting
   core/                 dom helpers, formatting, store (localStorage, guarded), hash router
   components/           shell, icons, logo, charts, table, overlays, security vocabulary, flow detail
-  data/                 measured profile, model registry, pipeline status, sample data, access layer
+  data/                 measured profile, model registry, pipeline status, engine-data access layer (reads data/mavis.json)
   views/                overview, network, threats, explorer, models, dataset, reports, settings
 tools/build-profile.mjs regenerates src/data/dataset-profile.js
 ```
 
 Views compose components and never define new looks. Charts are hand-drawn SVG at the container's real width, redrawn on resize, sharing one tooltip.
 
-## Connecting real results later
+## Design
 
-When the pipeline produces per-flow scores, replace `src/data/sample/events.js` with a module (or a `fetch`) that returns the same shape:
-
-```js
-{ id, ts, day, src: { ip, port }, dst: { ip, port }, proto, service, durationUs, packets, bytes,
-  features: { 'Flow Duration': …, … }, label, attackClass,
-  scores: { if, lof, ae },          // native units: −decision_function for IF/LOF, MSE for AE
-  flags: { if, lof, ae },           // score above each detector's cut-off
-  agree, severity, status }
-```
-
-Then drop the sample tags on the panels that read it, set the autoencoder cut-off in `components/security.js`, and replace the sample severity rule once the fusion engine exists.
+"Field instrument": warm paper surfaces, a bottle-green structure colour, one amber signal colour for what needs attention, earthy severity and detector colours (`styles/tokens.css`). Light is the default and a dark variant exists. No gradients, glows or glass.
 
 ## Accessibility and motion
 

@@ -143,5 +143,58 @@
       "suspicious": 110831
     }
   },
-  "zero_day": {}
+  "zero_day": {
+    "Bot": {
+      "n": 974,
+      "alerted": 0.0,
+      "as_novel": 0.0,
+      "anomaly_path_fired": 0.0,
+      "misnamed_as": {},
+      "benign_fpr": 0.0097
+    },
+    "PortScan": {
+      "n": 45347,
+      "alerted": 0.1169,
+      "as_novel": 0.1123,
+      "anomaly_path_fired": 0.1123,
+      "misnamed_as": {
+        "BruteForce": 125,
+        "DoS": 78,
+        "WebAttack": 5
+      },
+      "benign_fpr": 0.0096
+    },
+    "WebAttack": {
+      "n": 1072,
+      "alerted": 0.2612,
+      "as_novel": 0.0,
+      "anomaly_path_fired": 0.0,
+      "misnamed_as": {
+        "DoS": 257,
+        "PortScan": 23
+      },
+      "benign_fpr": 0.0096
+    },
+    "DDoS": {
+      "n": 64007,
+      "alerted": 0.6322,
+      "as_novel": 0.0009,
+      "anomaly_path_fired": 0.4501,
+      "misnamed_as": {
+        "DoS": 40349,
+        "PortScan": 61
+      },
+      "benign_fpr": 0.0096
+    },
+    "BruteForce": {
+      "n": 4575,
+      "alerted": 0.0028,
+      "as_novel": 0.0015,
+      "anomaly_path_fired": 0.0015,
+      "misnamed_as": {
+        "PortScan": 6
+      },
+      "benign_fpr": 0.0096
+    }
+  }
 }

@@ -5,10 +5,10 @@ import { fmtInt, fmtBytes, fmtPct } from '../core/format.js';
 import { icon } from '../components/icons.js';
 import { bindChart, hBars } from '../components/charts.js';
 import { toast } from '../components/overlays.js';
-import { tagReal, tagPlanned, infoCallout } from '../components/security.js';
+import { tagReal, tagEval, infoCallout } from '../components/security.js';
 import { createTable } from '../components/table.js';
 import { emptyState } from '../components/states.js';
-import { datasetProfile, cicSummary } from '../data/index.js';
+import { datasetProfile, cicSummary, evaluation } from '../data/index.js';
 import { pageHead, panel, remount } from './common.js';
 
 const FAMILIES = [
@@ -20,6 +20,36 @@ const FAMILIES = [
 ];
 const familyOf = (c) => (c === 'Label' ? 'Target' : (FAMILIES.find(([, re]) => re.test(c)) || ['Other'])[0]);
 const dayOf = (src) => src.split('-')[0].replace(/^./, (x) => x.toUpperCase());
+
+const catOrder = ['Benign', 'DoS', 'DDoS', 'PortScan', 'BruteForce', 'WebAttack', 'Bot', 'Infiltration', 'Heartbleed'];
+
+// What preprocessing did to the raw rows before training (reports/preprocess_report_anomaly.json).
+function preprocessPanel() {
+  const pr = evaluation()?.preprocess;
+  if (!pr) return panel({ title: 'Preprocessing', body: html`<p class="panel-meta">The preprocessing report is not in the snapshot. Run <code>python scripts/export_frontend.py</code>.</p>` });
+  const splits = Object.entries(pr.splits || {});
+  const cats = catOrder.filter((c) => splits.some(([, v]) => v.categories?.[c]));
+  return panel({ title: 'Preprocessing', tag: tagEval('From the pipeline'), cls: 'span-3',
+    meta: `seed ${pr.seed} · benign training source: ${pr.benign_source}`,
+    body: html`
+      <div class="prep-grid">
+        <dl class="kv">
+          <dt>Rows loaded</dt><dd class="mono">${fmtInt(pr.rows_loaded)}</dd>
+          <dt>Dropped: NaN or infinite</dt><dd class="mono">${fmtInt(pr.rows_dropped_nan_or_inf)}</dd>
+          <dt>Dropped: duplicates</dt><dd class="mono">${fmtInt(pr.rows_dropped_duplicate)}</dd>
+          <dt>Conflicting labels</dt><dd class="mono">${fmtInt(pr.flows_with_conflicting_labels)} <span class="muted">identical flows carrying different labels</span></dd>
+          <dt>Clean rows</dt><dd class="mono"><b>${fmtInt(pr.rows_clean)}</b> <span class="muted">${fmtPct(pr.rows_clean / pr.rows_loaded)} of loaded</span></dd>
+          <dt>Features kept</dt><dd class="mono">${pr.features?.length ?? 'n/a'}</dd>
+          <dt>Dropped columns (${pr.dropped_columns?.length ?? 0})</dt><dd><div class="tag-list" style="margin:0">${(pr.dropped_columns || []).map((c) => html`<span class="tag">${c}</span>`)}</div><span class="panel-meta">Constant in the data, so they carry no signal.</span></dd>
+        </dl>
+        <div class="table-wrap"><table class="table table-tight">
+          <caption class="visually-hidden">Rows per split and category</caption>
+          <thead><tr><th scope="col">Category</th>${splits.map(([k]) => html`<th scope="col" class="r">${k}</th>`)}</tr></thead>
+          <tbody>${cats.map((c) => html`<tr><td>${c}</td>${splits.map(([, v]) => html`<td class="r mono">${v.categories?.[c] ? fmtInt(v.categories[c]) : html`<span class="muted">0</span>`}</td>`)}</tr>`)}
+            <tr class="total-row"><td>Total</td>${splits.map(([, v]) => html`<td class="r mono"><b>${fmtInt(v.rows)}</b></td>`)}</tr></tbody></table></div>
+      </div>
+      <p class="panel-meta">Detectors train on the benign split only (Monday traffic). The test split holds every attack family plus the remaining benign flows.</p>` });
+}
 
 export default {
   title: 'Dataset Analysis',
@@ -42,7 +72,7 @@ export default {
     mount(root, html`
       ${pageHead({
         title: 'Dataset Analysis',
-        sub: 'Raw file profile for the datasets MAVIS trains on. Every number on this page was measured from the files.',
+        sub: 'Raw file profile and the preprocessing that turns it into training data. File numbers were measured from the files; preprocessing numbers come from the pipeline report.',
         actions: html`
           <div class="segmented" role="group" aria-label="Dataset">
             <button data-ds="cic" aria-pressed="${which === 'cic'}">CIC-IDS2017</button>
@@ -74,15 +104,7 @@ export default {
             <li data-tone="${constantAll.length ? 'warn' : 'ok'}">${icon(constantAll.length ? 'filter' : 'check')}<div><b>${constantAll.length} constant columns in every file</b><span>${constantAll.length ? 'Carry no signal and can be dropped.' : 'None.'}</span></div></li>
           </ul>` })}
 
-        ${panel({ title: 'Analysis progress', body: html`
-          <ol class="progress-steps">
-            <li data-done="true">${icon('check')}<span>Raw profile generated</span>${tagReal('Done')}</li>
-            <li>${icon('clock')}<span>Clean missing, infinite and duplicate rows</span>${tagPlanned()}</li>
-            <li>${icon('clock')}<span>Drop constant columns and scale features</span>${tagPlanned()}</li>
-            <li>${icon('clock')}<span>Train on benign traffic, score the rest</span>${tagPlanned()}</li>
-          </ol>
-          <div class="progress" style="margin-top:12px" role="progressbar" aria-valuemin="0" aria-valuemax="4" aria-valuenow="1" aria-label="Analysis steps complete"><span style="width:25%"></span></div>
-          <div class="panel-meta" style="margin-top:6px">1 of 4 steps complete</div>` })}
+        ${which === 'cic' ? preprocessPanel() : ''}
 
         ${panel({ title: 'Files', tag: tagReal(), cls: 'span-3', bodyCls: 'flush', body: html`<div id="ds-files"></div>` })}
 

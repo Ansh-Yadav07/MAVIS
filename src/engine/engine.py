@@ -177,6 +177,18 @@ class MavisEngine:
         # features make bins uneven, so the real shares are stored rather than assumed 10 % each)
         Xb = X_calib.to_numpy()[benign_c]
         edges = np.quantile(Xb, np.linspace(0, 1, 11), axis=0)
+        ae = self.models.get('ae')
+        if ae is not None and hasattr(ae, 'feature_errors'):
+            sample = X_calib[benign_c].sample(n=min(50_000, int(benign_c.sum())), random_state=seed)
+            self.benign_feature_error = np.maximum(ae.feature_errors(sample).mean(axis=0), 1e-9)
+        # Thresholds for other alert budgets, so the console can re-apply them without the engine.
+        self.budget_table = {}
+        for b in (0.001, 0.0025, 0.005, 0.01, 0.02, 0.05):
+            kt = float(max(np.quantile(p_known_c[benign_c], 1 - b / 2), 0.5))
+            kfp = benign_c & (p_known_c >= kt)
+            lft = max(b - kfp.sum() / benign_c.sum(), b / 2)
+            rst = benign_c & ~kfp
+            self.budget_table[b] = {'known': kt, 'novel': float(np.quantile(ens_c[rst], 1 - lft * benign_c.sum() / rst.sum()))}
         self.drift_ref = {}
         for j, f in enumerate(self.features):
             inner = np.unique(edges[:, j])[1:-1]
@@ -239,26 +251,41 @@ class MavisEngine:
         return out
 
     def explain(self, X, rows, top=3):
-        """Top deviating features per flow: autoencoder reconstruction error when available,
-        else distance from the benign mean (features are standardised on benign traffic)."""
+        """Features that make each flow abnormal, ranked by how much worse the autoencoder
+        reconstructs them than it does on typical benign traffic (`ratio`). `z` is the feature's
+        position against the benign distribution (features are standardised on benign traffic)."""
         Xr = X.iloc[rows]
-        ae = self.models.get('ae')
-        weight = ae.feature_errors(Xr) if ae is not None and hasattr(ae, 'feature_errors') else Xr.to_numpy() ** 2
         z = Xr.to_numpy()
+        ae = self.models.get('ae')
+        ref = getattr(self, 'benign_feature_error', None)
+        if ae is not None and hasattr(ae, 'feature_errors') and ref is not None:
+            weight = ae.feature_errors(Xr) / ref
+        else:
+            weight = z ** 2
         out = []
         for i in range(len(rows)):
             idx = np.argsort(weight[i])[::-1][:top]
-            out.append([{'feature': self.features[j], 'z': round(float(z[i, j]), 2),
-                         'text': f"{self.features[j]} is {abs(z[i, j]):.1f} std "
-                                 f"{'above' if z[i, j] >= 0 else 'below'} normal"} for j in idx])
+            items = []
+            for j in idx:
+                f, zz, r = self.features[j], float(z[i, j]), float(weight[i, j])
+                side = 'higher' if zz >= 0 else 'lower'
+                if ref is None:
+                    text = f"{f} is {abs(zz):.1f} std {side} than normal"
+                elif abs(zz) >= 1:
+                    text = f"{f} is {side} than typical ({r:.0f}x the reconstruction error of normal traffic)"
+                else:
+                    text = (f"{f} has a typical value but does not fit the rest of this flow "
+                            f"({r:.0f}x the reconstruction error of normal traffic)")
+                items.append({'feature': f, 'z': round(zz, 2), 'ratio': round(r, 1), 'text': text})
+            out.append(items)
         return out
 
     # ------------------------------------------------------------------ monitoring
-    def drift(self, X, normal_mask):
+    def drift(self, X, normal_mask, min_rows=5000):
         """Population-stability index of each feature on flows judged normal vs the benign reference.
         PSI > 0.25 on several features means the network changed and the models should be recalibrated."""
         Xn = X.to_numpy()[normal_mask]
-        if len(Xn) < 500:
+        if len(Xn) < min_rows:  # fewer normal flows give noisy PSI on 10 bins
             return {'status': 'insufficient-data', 'rows': int(len(Xn))}
         psi = {}
         for j, f in enumerate(self.features):

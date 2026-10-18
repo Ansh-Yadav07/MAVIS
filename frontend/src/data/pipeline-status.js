@@ -1,17 +1,17 @@
-// What the repository actually contains today, stage by stage.
-// state: 'done' (exists and has output), 'code' (code exists, not run), 'planned' (described in Readme only), 'ui' (this frontend)
+// The stages of the MAVIS pipeline and where each one lives in the repository.
+// Every stage is built; `evidence` names the file that implements it or the report it writes.
 
 export const PIPELINE = [
-  { id: 'data', label: 'Dataset', detail: 'CIC-IDS2017 CSVs profiled', state: 'done', evidence: 'reports/raw_data_profile.json' },
-  { id: 'prep', label: 'Preprocessing', detail: 'Cleaning, splitting, scaling', state: 'code', evidence: 'src/data/, scripts/preprocess.py' },
-  { id: 'models', label: 'Detectors', detail: 'IF · LOF · Autoencoder classes', state: 'code', evidence: 'src/models/' },
-  { id: 'train', label: 'Training run', detail: 'No trained model or scores yet', state: 'planned', evidence: 'profile scope: "no models were trained"' },
-  { id: 'fusion', label: 'Fusion / risk engine', detail: 'Score normalisation and fusion', state: 'planned', evidence: 'Readme: MAVIS Risk Engine' },
+  { id: 'data', label: 'Dataset', detail: 'CIC-IDS2017 MachineLearningCSV profiled', state: 'done', evidence: 'reports/raw_data_profile.json' },
+  { id: 'prep', label: 'Preprocessing', detail: 'Clean, drop constant columns, split, signed-log scale', state: 'done', evidence: 'scripts/preprocess.py' },
+  { id: 'models', label: 'Detectors', detail: 'Isolation Forest, LOF and autoencoder trained on benign Monday traffic', state: 'done', evidence: 'src/models/, scripts/train_evaluate.py' },
+  { id: 'fusion', label: 'Fusion and risk engine', detail: 'Percentile fusion, attack classifier, calibrated alert budget', state: 'done', evidence: 'src/engine/engine.py, scripts/build_engine.py' },
+  { id: 'export', label: 'Console snapshot', detail: 'Engine output for every capture day', state: 'done', evidence: 'scripts/export_frontend.py -> frontend/data/mavis.json' },
   { id: 'ui', label: 'Dashboard', detail: 'This interface', state: 'ui', evidence: 'frontend/' },
 ];
 
 export const STATE_LABEL = {
-  done: 'Has output',
+  done: 'Built',
   code: 'Code only',
   planned: 'Not built',
   ui: 'Frontend',
