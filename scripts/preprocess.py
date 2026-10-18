@@ -20,7 +20,8 @@ from data.preprocess import run  # noqa: E402
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument('--raw-dir', default=ROOT / 'dataset', type=Path, help='folder with the CICFlowMeter CSVs (searched recursively)')
+    p.add_argument('--raw-dir', default=None, type=Path,
+                   help='folder with the CICFlowMeter CSVs, searched recursively (default: dataset/ or datasets/ in the repo)')
     p.add_argument('--out-dir', default=ROOT / 'dataset' / 'processed', type=Path)
     p.add_argument('--mode', choices=['anomaly', 'supervised'], default='anomaly')
     p.add_argument('--benign-source', default='Monday', help="anomaly mode: train on benign rows of files whose name contains this")
@@ -31,6 +32,11 @@ def main():
     p.add_argument('--seed', type=int, default=42)
     p.add_argument('--report', type=Path, default=None, help='also copy the report here (default: reports/preprocess_report_<mode>.json)')
     a = p.parse_args()
+    if a.raw_dir is None:
+        a.raw_dir = next((d for d in (ROOT / 'dataset', ROOT / 'datasets') if d.is_dir()), None)
+        if a.raw_dir is None:
+            p.error(f"no dataset/ or datasets/ folder in {ROOT}; pass --raw-dir /path/to/csvs")
+    print(f"reading CSVs from {a.raw_dir}")
 
     report = run(a.raw_dir, a.out_dir, mode=a.mode, benign_source=a.benign_source, val_frac=a.val_frac,
                  test_frac=a.test_frac, drop_port=a.drop_port, max_rows_per_file=a.max_rows_per_file, seed=a.seed)
