@@ -1,55 +1,48 @@
 from sklearn.ensemble import IsolationForest
 import joblib
 
+from ._util import batched, to_numpy
+
 
 class MavisIsolationForest:
-    def __init__(self, n_estimators=100, contamination='auto', random_state=42):
-        """Isolation Forest for semi-supervised anomaly detection.
+    def __init__(self, n_estimators=300, max_samples=0.75, max_features=0.5, bootstrap=False,
+                 contamination='auto', random_state=42):
+        """Isolation Forest for semi-supervised anomaly detection (train on benign only).
 
-        Args:
-            contamination: 'auto' (default) is appropriate when training on
-                clean data. Sklearn computes the threshold from the training
-                data distribution. Avoid setting a fixed fraction (e.g. 0.01)
-                when the training set is known to be 100% benign.
+        contamination='auto' is appropriate for 100% benign training data.
         """
-        self.model = IsolationForest(
-            n_estimators=n_estimators,
-            contamination=contamination,
-            random_state=random_state,
-            n_jobs=-1
-        )
+        self.params = dict(n_estimators=n_estimators, max_samples=max_samples, max_features=max_features,
+                           bootstrap=bootstrap, contamination=contamination, random_state=random_state)
+        self.model = IsolationForest(n_jobs=-1, **self.params)
         self.is_trained = False
-        
-    def train(self, X_train):
-        """
-        Trains the Isolation Forest model.
-        X_train should be mostly benign traffic.
-        """
+
+    def fit(self, X, y=None):
+        """Fit on (mostly) benign traffic."""
         print("Training Isolation Forest...")
-        self.model.fit(X_train)
+        self.model.fit(to_numpy(X))
         self.is_trained = True
         print("Training complete.")
-        
-    def predict_anomaly_score(self, X):
-        """
-        Returns anomaly score. 
-        Note: Sklearn's IF returns negative scores for anomalies (lower = more anomalous).
-        We invert this so higher = more anomalous, matching MAVIS threat score logic.
-        """
+        return self
+
+    def train(self, X_train):
+        """Backward-compatible alias for fit()."""
+        return self.fit(X_train)
+
+    def predict_anomaly_score(self, X, batch_size=100_000):
+        """1-D float array; higher = more anomalous (negated sklearn decision_function)."""
         if not self.is_trained:
             raise ValueError("Model is not trained yet.")
-        
-        # decision_function: The anomaly score of the input samples. 
-        # The lower, the more abnormal.
-        scores = self.model.decision_function(X)
-        
-        # Invert scores: higher score = more anomalous
-        inverted_scores = -scores
-        return inverted_scores
-        
+        return batched(lambda b: -self.model.decision_function(b), X, batch_size)
+
     def save(self, filepath):
-        joblib.dump(self.model, filepath)
-        
-    def load(self, filepath):
-        self.model = joblib.load(filepath)
-        self.is_trained = True
+        joblib.dump({'params': self.params, 'model': self.model}, filepath)
+
+    @classmethod
+    def load(cls, filepath):
+        obj = joblib.load(filepath)
+        if not isinstance(obj, dict):  # legacy: bare sklearn model
+            obj = {'params': {}, 'model': obj}
+        inst = cls(**obj['params'])
+        inst.model = obj['model']
+        inst.is_trained = True
+        return inst

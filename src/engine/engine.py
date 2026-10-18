@@ -1,0 +1,297 @@
+"""MAVIS risk engine: turns scaled flow features into analyst-ready verdicts.
+
+Per flow it combines two independent views:
+
+- **Novelty**: Isolation Forest, LOF and the Autoencoder each score how unusual the flow is
+  compared with benign traffic. Scores become percentiles of benign traffic, so the three are
+  comparable, and their mean is the anomaly-ensemble percentile.
+- **Recognition**: a gradient-boosted classifier, trained on labelled flows (plus the three
+  anomaly percentiles as extra inputs), names the attack family and its probability.
+
+likelihood = 1 - (1 - p_known) * (1 - 0.9 * novelty)     (noisy-OR: either view can raise it)
+risk       = 100 * likelihood * (0.7 + 0.3 * impact)     (impact from engine/knowledge.py)
+
+Alerting uses two detectors that share the analyst's false-positive "alert budget" (target FPR),
+calibrated on held-out benign flows (the known path at most half, the novel path the rest):
+- known path: the classifier's attack probability is above its threshold -> `malicious`;
+- novel path: the anomaly ensemble is above its threshold while the classifier sees nothing
+  -> `suspicious` (a zero-day candidate). An unseen attack family usually looks benign to the
+  classifier, so without a separate novel path its weak anomaly signal would be outvoted.
+risk orders alerts and sets their severity.
+"""
+import json
+from pathlib import Path
+
+import joblib
+import numpy as np
+import pandas as pd
+from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.neighbors import NearestNeighbors
+
+from .knowledge import NOVEL, THREATS, severity_for
+
+MODEL_NAMES = ('iforest', 'lof', 'ae')
+BENIGN = 'Benign'
+VOTE_PCT = 0.99           # a model "votes" when the flow is above its 99th benign percentile
+NOVEL_TAIL = (0.05, 0.0005)  # novelty rises from 0 (top 5 % of benign) to 1 (top 0.05 %)
+_GRID = np.concatenate([np.linspace(0, 0.99, 991), np.linspace(0.99, 1, 1001)[1:]])
+
+
+class PercentileMap:
+    """Maps a raw score to its percentile among reference (benign) scores, from a compact quantile grid."""
+
+    def __init__(self, reference_scores):
+        q = np.quantile(np.asarray(reference_scores, dtype=np.float64), _GRID)
+        # np.interp needs strictly increasing x: nudge ties apart.
+        self.x = np.maximum.accumulate(q) + np.arange(len(q)) * 1e-12
+        self.p = _GRID
+
+    def __call__(self, scores):
+        return np.interp(np.asarray(scores, dtype=np.float64), self.x, self.p, left=0.0, right=1.0)
+
+
+def oversample_rare(X, y, min_count=2000, k=5, seed=42):
+    """SMOTE-style augmentation: new rows interpolated between same-class neighbours.
+
+    Only for training the classifier; never applied to evaluation data.
+    Returns (X_aug, y_aug, n_added_per_class).
+    """
+    rng = np.random.default_rng(seed)
+    Xs, ys, added = [X], [y], {}
+    for cls, idx in pd.Series(np.arange(len(y))).groupby(y).groups.items():
+        n = len(idx)
+        if cls == BENIGN or n >= min_count or n < 2:
+            continue
+        pts = X[np.asarray(idx)]
+        nn = NearestNeighbors(n_neighbors=min(k + 1, n)).fit(pts)
+        neigh = nn.kneighbors(pts, return_distance=False)[:, 1:]
+        need = min_count - n
+        base = rng.integers(0, n, need)
+        mate = neigh[base, rng.integers(0, neigh.shape[1], need)]
+        gap = rng.random((need, 1)).astype(X.dtype)
+        Xs.append(pts[base] + gap * (pts[mate] - pts[base]))
+        ys.append(np.full(need, cls, dtype=object))
+        added[cls] = int(need)
+    return np.vstack(Xs), np.concatenate(ys), added
+
+
+def _psi(expected_frac, actual_frac, eps=1e-4):
+    e, a = np.clip(expected_frac, eps, None), np.clip(actual_frac, eps, None)
+    return float(np.sum((a - e) * np.log(a / e)))
+
+
+class MavisEngine:
+    def __init__(self, models, preprocessor=None):
+        self.models = dict(models)
+        self.preprocessor = preprocessor
+        self.features = None
+        self.maps = {}
+        self.ens_map = None
+        self.classifier = None
+        self.classes_ = None
+        self.alert_threshold = None
+        self.target_fpr = None
+        self.drift_ref = None
+        self.meta = {}
+
+    # ------------------------------------------------------------------ scoring pieces
+    def model_scores(self, X):
+        return {n: np.asarray(m.predict_anomaly_score(X), dtype=np.float64) for n, m in self.models.items()}
+
+    @staticmethod
+    def _combine(pct):
+        """Mean of the model percentiles. On CIC-IDS2017 it beat Fisher's method, top-2 mean and max
+        (recall 0.49 vs 0.24 / 0.06 / 0.17 at 1 % FPR), because attacks tend to be moderately
+        unusual to every model rather than extreme to one."""
+        return pct.mean(axis=1)
+
+    def _percentiles(self, raw):
+        pct = np.column_stack([self.maps[n](raw[n]) for n in MODEL_NAMES])
+        return pct, self.ens_map(self._combine(pct))
+
+    @staticmethod
+    def _clf_input(X, pct):
+        return np.hstack([np.asarray(X, dtype=np.float32), pct.astype(np.float32)])
+
+    @staticmethod
+    def _novelty(ens_pct):
+        tail = np.clip(1 - ens_pct, 1e-6, 1)
+        hi, lo = NOVEL_TAIL
+        return np.clip(np.log(hi / tail) / np.log(hi / lo), 0, 1)
+
+    # ------------------------------------------------------------------ fitting
+    def fit(self, X_train, y_train, raw_train, X_calib, y_calib, raw_calib, target_fpr=0.01,
+            augment=True, exclude_categories=(), max_benign=300_000, seed=42, log=print):
+        """Fit percentile maps, classifier and alert threshold.
+
+        X_*: scaled features; y_*: attack category per row ('Benign', 'DoS', ...);
+        raw_*: dict model name -> anomaly scores for those rows (precomputed, e.g. cached).
+        Percentile maps and the alert threshold come from the benign rows of the *calibration*
+        set, which the classifier never sees, so the false-positive rate holds on new data.
+        """
+        self.features = list(X_train.columns)
+        y_train, y_calib = np.asarray(y_train, dtype=object), np.asarray(y_calib, dtype=object)
+        benign_c = y_calib == BENIGN
+        self.maps = {n: PercentileMap(raw_calib[n][benign_c]) for n in MODEL_NAMES}
+        pct_c = np.column_stack([self.maps[n](raw_calib[n]) for n in MODEL_NAMES])
+        self.ens_map = PercentileMap(self._combine(pct_c[benign_c]))
+
+        # classifier training rows: drop excluded families (novel-attack experiments), cap benign
+        pct_t, _ = self._percentiles(raw_train)
+        keep = ~np.isin(y_train, list(exclude_categories))
+        rng = np.random.default_rng(seed)
+        benign_idx = np.flatnonzero(keep & (y_train == BENIGN))
+        if len(benign_idx) > max_benign:
+            keep[rng.choice(benign_idx, len(benign_idx) - max_benign, replace=False)] = False
+        Xc = self._clf_input(X_train.to_numpy()[keep], pct_t[keep])
+        yc = y_train[keep]
+        added = {}
+        if augment:
+            Xc, yc, added = oversample_rare(Xc, yc, seed=seed)
+            if added:
+                log(f"augmented rare classes with synthetic rows: {added}")
+        counts = pd.Series(yc).value_counts()
+        weight = pd.Series(yc).map(lambda c: (len(yc) / (len(counts) * counts[c])) ** 0.5).to_numpy()
+        log(f"training classifier on {len(yc):,} rows, classes {counts.to_dict()}")
+        self.classifier = HistGradientBoostingClassifier(
+            max_iter=300, learning_rate=0.1, max_leaf_nodes=63, early_stopping=True,
+            validation_fraction=0.1, random_state=seed)
+        self.classifier.fit(Xc, yc, sample_weight=weight)
+        self.classes_ = list(self.classifier.classes_)
+
+        # alert thresholds: each path gets half the false-positive budget on benign calibration flows
+        self.target_fpr = target_fpr
+        pct_c, ens_c = self._percentiles(raw_calib)
+        p_known_c = 1 - self.classifier.predict_proba(self._clf_input(X_calib, pct_c))[:, self.classes_.index(BENIGN)]
+        known_thr = float(max(np.quantile(p_known_c[benign_c], 1 - target_fpr / 2), 0.5))
+        # the novel path gets whatever budget the known path leaves unused
+        known_fp = benign_c & (p_known_c >= known_thr)
+        left = max(target_fpr - known_fp.sum() / benign_c.sum(), target_fpr / 2)
+        rest = benign_c & ~known_fp
+        self.alert_threshold = {
+            'known': known_thr,
+            'novel': float(np.quantile(ens_c[rest], 1 - left * benign_c.sum() / rest.sum())),
+        }
+
+        # drift reference: per-feature decile bins and the benign share in each (ties in discrete
+        # features make bins uneven, so the real shares are stored rather than assumed 10 % each)
+        Xb = X_calib.to_numpy()[benign_c]
+        edges = np.quantile(Xb, np.linspace(0, 1, 11), axis=0)
+        self.drift_ref = {}
+        for j, f in enumerate(self.features):
+            inner = np.unique(edges[:, j])[1:-1]
+            if len(inner):
+                frac = np.bincount(np.searchsorted(inner, Xb[:, j], side='right'), minlength=len(inner) + 1) / len(Xb)
+                self.drift_ref[f] = (inner, frac)
+        self.meta = {'n_train': int(len(yc)), 'synthetic_rows': added,
+                     'excluded_categories': list(exclude_categories), 'classes': self.classes_}
+        log(f"alert thresholds for a {target_fpr:.1%} budget: p_known >= {self.alert_threshold['known']:.3f}, "
+            f"anomaly percentile >= {self.alert_threshold['novel']:.5f}")
+        return self
+
+    # ------------------------------------------------------------------ per-flow verdicts
+    def score(self, X, raw=None):
+        """Per-flow verdict table (one row per flow, same order as X)."""
+        if raw is None:
+            raw = self.model_scores(X)
+        pct, ens = self._percentiles(raw)
+        novelty = self._novelty(ens)
+        proba = self.classifier.predict_proba(self._clf_input(X, pct))
+        cls = np.array(self.classes_, dtype=object)
+        b = self.classes_.index(BENIGN)
+        p_known = 1 - proba[:, b]
+        attack_proba = proba.copy()
+        attack_proba[:, b] = -1
+        best = attack_proba.argmax(axis=1)
+        attack_type = cls[best]
+        type_conf = np.where(p_known > 0, proba[np.arange(len(best)), best] / np.maximum(p_known, 1e-9), 0)
+
+        recognised = p_known >= self.alert_threshold['known']
+        novel_hit = ens >= self.alert_threshold['novel']
+        family = np.where(recognised, attack_type, NOVEL)
+        impact = np.array([THREATS.get(f, THREATS[NOVEL])['impact'] for f in family])
+        likelihood = 1 - (1 - p_known) * (1 - 0.9 * novelty)
+        risk = 100 * likelihood * (0.7 + 0.3 * impact)
+
+        votes = (pct >= VOTE_PCT).sum(axis=1) + recognised.astype(int)
+        alert = recognised | novel_hit
+        verdict = np.where(~alert, 'normal', np.where(recognised, 'malicious', 'suspicious'))
+        mode = np.where(~alert, '', np.where(recognised & novel_hit, 'known+novel',
+                                             np.where(recognised, 'known', 'novel')))
+        confidence = np.where((votes >= 3) | (p_known >= 0.9), 'high',
+                              np.where((votes == 2) | (p_known >= 0.6), 'medium', 'low'))
+        out = pd.DataFrame({
+            'risk_score': risk.round(1),
+            'severity': [severity_for(r, 0) if a else 'None' for r, a in zip(risk, alert)],
+            'verdict': verdict,
+            'threat_family': np.where(alert, family, ''),
+            'detection_mode': mode,
+            'confidence': np.where(alert, confidence, ''),
+            'p_known_attack': p_known.round(4),
+            'predicted_type': attack_type,
+            'type_confidence': type_conf.round(3),
+            'novelty': novelty.round(3),
+            'anomaly_percentile': ens.round(5),
+            'model_votes': votes,
+        })
+        for i, n in enumerate(MODEL_NAMES):
+            out[f'pct_{n}'] = pct[:, i].round(5)
+        return out
+
+    def explain(self, X, rows, top=3):
+        """Top deviating features per flow: autoencoder reconstruction error when available,
+        else distance from the benign mean (features are standardised on benign traffic)."""
+        Xr = X.iloc[rows]
+        ae = self.models.get('ae')
+        weight = ae.feature_errors(Xr) if ae is not None and hasattr(ae, 'feature_errors') else Xr.to_numpy() ** 2
+        z = Xr.to_numpy()
+        out = []
+        for i in range(len(rows)):
+            idx = np.argsort(weight[i])[::-1][:top]
+            out.append([{'feature': self.features[j], 'z': round(float(z[i, j]), 2),
+                         'text': f"{self.features[j]} is {abs(z[i, j]):.1f} std "
+                                 f"{'above' if z[i, j] >= 0 else 'below'} normal"} for j in idx])
+        return out
+
+    # ------------------------------------------------------------------ monitoring
+    def drift(self, X, normal_mask):
+        """Population-stability index of each feature on flows judged normal vs the benign reference.
+        PSI > 0.25 on several features means the network changed and the models should be recalibrated."""
+        Xn = X.to_numpy()[normal_mask]
+        if len(Xn) < 500:
+            return {'status': 'insufficient-data', 'rows': int(len(Xn))}
+        psi = {}
+        for j, f in enumerate(self.features):
+            if f not in self.drift_ref:
+                continue
+            inner, ref = self.drift_ref[f]
+            act = np.bincount(np.searchsorted(inner, Xn[:, j], side='right'), minlength=len(inner) + 1) / len(Xn)
+            psi[f] = _psi(ref, act)
+        worst = sorted(psi.items(), key=lambda kv: -kv[1])[:5]
+        n_bad = sum(v > 0.25 for v in psi.values())
+        status = 'retrain-recommended' if n_bad >= 10 else 'watch' if n_bad >= 3 else 'stable'
+        return {'status': status, 'features_drifted': n_bad,
+                'top': [{'feature': f, 'psi': round(v, 3)} for f, v in worst]}
+
+    # ------------------------------------------------------------------ persistence
+    def save(self, path):
+        path = Path(path)
+        path.mkdir(parents=True, exist_ok=True)
+        for n, m in self.models.items():
+            m.save(path / f"{n}.{'pt' if n == 'ae' else 'joblib'}")
+        state = {k: v for k, v in self.__dict__.items() if k != 'models'}
+        joblib.dump(state, path / 'engine.joblib')
+        (path / 'engine_info.json').write_text(json.dumps({
+            'alert_threshold': self.alert_threshold, 'target_fpr': self.target_fpr,
+            'features': self.features, **self.meta}, indent=2))
+
+    @classmethod
+    def load(cls, path):
+        from models import MavisAutoencoder, MavisIsolationForest, MavisLOF
+        path = Path(path)
+        models = {'iforest': MavisIsolationForest.load(path / 'iforest.joblib'),
+                  'lof': MavisLOF.load(path / 'lof.joblib'),
+                  'ae': MavisAutoencoder.load(path / 'ae.pt')}
+        eng = cls(models)
+        eng.__dict__.update(joblib.load(path / 'engine.joblib'))
+        return eng

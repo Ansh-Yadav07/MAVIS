@@ -47,11 +47,11 @@ MODEL_NAMES = ['iforest', 'lof', 'ae']
 def build(name, n_features, a):
     # Parameters follow results/hpo/final_hpo_report.json where the wrapper exposes them.
     if name == 'iforest':
-        return MavisIsolationForest(n_estimators=300, random_state=a.seed)
+        return MavisIsolationForest(n_estimators=300, max_samples=0.75, max_features=0.5, random_state=a.seed)
     if name == 'lof':
         return MavisLOF(n_neighbors=50, metric='euclidean', leaf_size=40, max_train_samples=a.lof_train_samples)
     device = 'mps' if a.device == 'auto' and _mps_available() else ('cpu' if a.device == 'auto' else a.device)
-    return MavisAutoencoder(n_features, learning_rate=3e-4, device=device)
+    return MavisAutoencoder(n_features, learning_rate=3e-4, device=device, dropout=0.1, seed=a.seed)
 
 
 def _mps_available():
@@ -59,11 +59,11 @@ def _mps_available():
     return torch.backends.mps.is_available()
 
 
-def fit(name, model, X, a):
+def fit(name, model, X, a, X_val=None):
     if name == 'ae':
-        model.fit(X, epochs=a.ae_epochs, batch_size=128)
+        model.fit(X, X_val=X_val, epochs=a.ae_epochs, batch_size=128, patience=3)
     else:
-        model.train(X)
+        model.fit(X)
 
 
 def score(model, X, chunk=100_000):
@@ -135,7 +135,7 @@ def train_and_score(name, X_train, X_val, X_test, a):
 
     model = build(name, X_train.shape[1], a)
     t0 = time.time()
-    fit(name, model, X_train, a)
+    fit(name, model, X_train, a, X_val=X_val)
     t1 = time.time()
     val_scores, test_scores = score(model, X_val), score(model, X_test)
     timings = {'train_s': round(t1 - t0, 1), 'score_s': round(time.time() - t1, 1)}

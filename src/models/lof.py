@@ -1,76 +1,66 @@
 from sklearn.neighbors import LocalOutlierFactor
 import numpy as np
+import joblib
 import logging
 
+from ._util import batched, to_numpy
 
 logger = logging.getLogger(__name__)
 
-# Default maximum training samples for LOF. LOF is O(N^2) in complexity,
-# so training on more than ~30-50k rows is impractical.
+# LOF scoring cost grows with the stored training set; see scripts/train_evaluate.py.
 DEFAULT_MAX_TRAIN_SAMPLES = 30000
 
 
 class MavisLOF:
-    def __init__(self, n_neighbors=20, contamination='auto', metric='minkowski', leaf_size=30, max_train_samples=DEFAULT_MAX_TRAIN_SAMPLES):
-        """Local Outlier Factor for semi-supervised anomaly detection.
+    def __init__(self, n_neighbors=20, contamination='auto', metric='minkowski', leaf_size=30,
+                 max_train_samples=DEFAULT_MAX_TRAIN_SAMPLES, random_state=42):
+        """Local Outlier Factor (novelty=True) fitted on benign data.
 
-        Args:
-            contamination: 'auto' (default) is appropriate when training on
-                clean data. Avoid fixed fractions on 100% benign data.
-            max_train_samples: Maximum number of training samples. If X_train
-                exceeds this, it is randomly subsampled to avoid O(N^2) blowup.
+        If the training set exceeds max_train_samples it is randomly subsampled.
         """
-        # novelty=True allows us to fit on benign data and predict on new data
-        self.model = LocalOutlierFactor(
-            n_neighbors=n_neighbors, 
-            contamination=contamination, 
-            novelty=True,
-            metric=metric,
-            leaf_size=leaf_size,
-            n_jobs=-1
-        )
+        self.params = dict(n_neighbors=n_neighbors, contamination=contamination, metric=metric,
+                           leaf_size=leaf_size, max_train_samples=max_train_samples,
+                           random_state=random_state)
+        self.model = self._make_model()
         self.max_train_samples = max_train_samples
+        self.random_state = random_state
         self.is_trained = False
-        
-    def train(self, X_train):
-        """Trains the LOF model, with automatic subsampling for large datasets.
 
-        LOF is O(N^2) in complexity. If X_train has more than max_train_samples
-        rows, it is randomly subsampled to keep training tractable.
-        """
-        n_samples = len(X_train)
+    def _make_model(self):
+        p = self.params
+        return LocalOutlierFactor(n_neighbors=p['n_neighbors'], contamination=p['contamination'],
+                                  novelty=True, metric=p['metric'], leaf_size=p['leaf_size'], n_jobs=-1)
 
-        if n_samples > self.max_train_samples:
-            logger.warning(
-                f"LOF training set ({n_samples} rows) exceeds max_train_samples "
-                f"({self.max_train_samples}). Subsampling to {self.max_train_samples} rows."
-            )
-            if hasattr(X_train, 'sample'):
-                # pandas DataFrame
-                X_train = X_train.sample(n=self.max_train_samples, random_state=42)
-            else:
-                # numpy array
-                rng = np.random.RandomState(42)
-                indices = rng.choice(n_samples, size=self.max_train_samples, replace=False)
-                X_train = X_train[indices]
-
-        print(f"Training Local Outlier Factor on {len(X_train)} samples...")
-        self.model.fit(X_train)
+    def fit(self, X, y=None):
+        X = to_numpy(X)
+        n = len(X)
+        if n > self.max_train_samples:
+            logger.warning(f"LOF: subsampling {n} -> {self.max_train_samples} rows")
+            idx = np.random.RandomState(self.random_state).choice(n, self.max_train_samples, replace=False)
+            X = X[idx]
+        print(f"Training Local Outlier Factor on {len(X)} samples...")
+        self.model.fit(X)
         self.is_trained = True
         print("Training complete.")
-        
-    def predict_anomaly_score(self, X):
-        """
-        Returns anomaly score.
-        Sklearn LOF returns negative scores for outliers (lower = more abnormal).
-        We invert this so higher = more anomalous.
-        """
+        return self
+
+    def train(self, X_train):
+        """Backward-compatible alias for fit()."""
+        return self.fit(X_train)
+
+    def predict_anomaly_score(self, X, batch_size=50_000):
+        """1-D float array; higher = more anomalous (negated sklearn decision_function)."""
         if not self.is_trained:
             raise ValueError("Model is not trained yet.")
-            
-        scores = self.model.decision_function(X)
-        inverted_scores = -scores
-        return inverted_scores
-        
-    # Note: LOF with novelty=True can technically be pickled via joblib,
-    # but the whole training dataset might be saved in the neighbors tree, making the file huge.
+        return batched(lambda b: -self.model.decision_function(b), X, batch_size)
+
+    def save(self, filepath):
+        joblib.dump({'params': self.params, 'model': self.model}, filepath)
+
+    @classmethod
+    def load(cls, filepath):
+        obj = joblib.load(filepath)
+        inst = cls(**obj['params'])
+        inst.model = obj['model']
+        inst.is_trained = True
+        return inst
