@@ -187,12 +187,14 @@
 .mcell[data-m="if"][data-on="true"] { background: var(--m-if); }
 .mcell[data-m="lof"][data-on="true"] { background: var(--m-lof); }
 .mcell[data-m="ae"][data-on="true"] { background: var(--m-ae); }
+.mcell[data-m="ecod"][data-on="true"] { background: var(--m-ecod); }
 .mcell[data-on="false"] { text-decoration: line-through; text-decoration-color: var(--line-strong); }
 
 .mdot { width: 8px; height: 8px; border-radius: 2px; display: inline-block; flex: none; }
 .mdot[data-m="if"] { background: var(--m-if); }
 .mdot[data-m="lof"] { background: var(--m-lof); }
 .mdot[data-m="ae"] { background: var(--m-ae); }
+.mdot[data-m="ecod"] { background: var(--m-ecod); }
 
 .ip { font-family: var(--font-mono); font-size: 12.5px; color: var(--ink-1); white-space: nowrap; }
 .ip .port { color: var(--ink-3); }

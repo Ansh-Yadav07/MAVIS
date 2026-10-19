@@ -69,6 +69,10 @@ Insider alert:
 - `role-violation`: `config/roles.json` `{"roles": {"mail-user": {"allow": ["mail","web","dns"]}}, "hosts": {"192.168.1.20": "mail-user"}}`; any other class → high.
 - `new-internal-peer`: first contact to an internal (RFC 1918) host on `db`/`admin`/`file` → medium.
 - `fan-out`: one host contacts ≥ 20 distinct internal hosts or ≥ 50 distinct ports within 60 s → high (scan / lateral movement).
+- `flood`: one source sends ≥ max(100, 4 × its learned peak) flows to one dst:port within 10 s → high (DoS; MITRE T1499).
+- `ddos`: one dst:port receives ≥ 200 flows from ≥ 20 distinct sources within 10 s → critical (MITRE T1498). Checked for
+  external sources too; per-IP blocking is not suggested for it.
+  The kind list above therefore also includes `flood | ddos`.
 
 ## 4. Response (blocking)
 `src/response/` exposes `ResponseManager(config_path='config/response.json', audit_path='results/response/audit.jsonl')`:

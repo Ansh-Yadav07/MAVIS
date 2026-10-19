@@ -7,7 +7,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 
-from models import MavisAutoencoder, MavisIsolationForest, MavisLOF  # noqa: E402
+from models import MavisAutoencoder, MavisECOD, MavisIsolationForest, MavisLOF  # noqa: E402
 
 D = 12
 
@@ -26,6 +26,8 @@ def make(name):
         return MavisIsolationForest(n_estimators=30)
     if name == 'lof':
         return MavisLOF(n_neighbors=10)
+    if name == 'ecod':
+        return MavisECOD()
     return MavisAutoencoder(D, learning_rate=1e-2, dropout=0.0)
 
 
@@ -37,7 +39,7 @@ def fit(name, m, X, Xv):
     return m
 
 
-@pytest.fixture(scope='module', params=['iforest', 'lof', 'ae'])
+@pytest.fixture(scope='module', params=['iforest', 'lof', 'ae', 'ecod'])
 def trained(request, data):
     X, Xv, _ = data
     return request.param, fit(request.param, make(request.param), X, Xv)
@@ -86,3 +88,19 @@ def test_autoencoder_feature_errors(data, tmp_path):
 def test_untrained_raises():
     with pytest.raises(ValueError):
         MavisIsolationForest().predict_anomaly_score(np.zeros((2, D)))
+
+
+def test_ecod_feature_scores_and_ties(data):
+    X, _, out = data
+    m = MavisECOD().fit(X)
+    fs = m.feature_scores(out)
+    assert fs.shape == (len(out), D) and np.isfinite(fs).all() and (fs >= 0).all()
+    assert fs.mean() > m.feature_scores(X).mean()
+    # constant feature in training data: same value typical, different value maximally unusual
+    Xc = X.copy()
+    Xc[0] = 1.0
+    mc = MavisECOD().fit(Xc)
+    probe = np.zeros((2, D), dtype=np.float32)
+    probe[1, 0] = 5.0
+    s = mc.predict_anomaly_score(np.where(np.arange(D) == 0, probe, 0.0))
+    assert s[1] > s[0]

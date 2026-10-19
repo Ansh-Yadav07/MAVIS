@@ -23,7 +23,7 @@ const CSV_COLS = [
   ['service', (f) => f.service], ['label', (f) => f.label], ['category', (f) => f.category], ['verdict', (f) => f.verdict],
   ['family', (f) => f.family], ['mode', (f) => f.mode], ['confidence', (f) => f.confidence], ['severity', (f) => f.severity],
   ['risk', (f) => f.risk], ['p_known', (f) => f.pKnown], ['anomaly_pct', (f) => f.anomalyPct],
-  ['pct_if', (f) => f.pct.if], ['pct_lof', (f) => f.pct.lof], ['pct_ae', (f) => f.pct.ae], ['outcome', (f) => f.outcome], ['status', (f) => f.status],
+  ['pct_if', (f) => f.pct.if], ['pct_lof', (f) => f.pct.lof], ['pct_ae', (f) => f.pct.ae], ['pct_ecod', (f) => f.pct.ecod], ['outcome', (f) => f.outcome], ['status', (f) => f.status],
 ];
 function downloadCsv(list) {
   const body = [CSV_COLS.map(([h]) => h).join(','), ...list.map((f) => CSV_COLS.map(([, g]) => csvCell(g(f))).join(','))].join('\n');

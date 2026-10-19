@@ -46,6 +46,20 @@ export const MODELS = [
     trainingNote: 'Trained on benign traffic only, with a validation split.',
     persistence: 'torch state_dict',
   },
+  {
+    id: 'ecod',
+    short: 'EC',
+    name: 'ECOD',
+    className: 'MavisECOD',
+    file: 'src/models/ecod.py',
+    library: 'NumPy (own implementation of Li et al., 2022)',
+    idea: 'Estimates, for every feature, how rare a value is in benign traffic from its empirical distribution, looking at the tail the feature is skewed towards. Rare values in many features add up. No parameters to tune, and the per-feature tail scores show which features are off.',
+    scoreName: 'Summed tail surprise',
+    scoreFormula: 'score = max(Σ −log F_left(x_j), Σ −log F_right(x_j), Σ −log F_skew(x_j))',
+    scoreDirection: 'Higher is more anomalous. Each feature’s distribution is stored as a compact quantile grid, dense in the tails.',
+    trainingNote: 'Fitted on benign traffic only (Monday capture). Seconds to fit, millions of flows per minute to score.',
+    persistence: 'joblib (quantile grids)',
+  },
 ];
 
 export const modelById = Object.fromEntries(MODELS.map((m) => [m.id, m]));
@@ -57,7 +71,7 @@ export const CLASSIFIER = {
   name: 'Attack classifier',
   file: 'src/engine/engine.py',
   library: 'scikit-learn HistGradientBoostingClassifier',
-  idea: 'A gradient-boosted classifier recognises the attack families it was shown in labelled data. Its inputs are the scaled flow features plus the three detector percentiles, so it also learns when the detectors can be trusted.',
+  idea: 'A gradient-boosted classifier recognises the attack families it was shown in labelled data. Its inputs are the scaled flow features plus the detector percentiles, so it also learns when the detectors can be trusted.',
   training: 'Benign rows are capped at 300,000. Rare families are padded with synthetic rows (SMOTE-style interpolation between same-class neighbours) up to 2,000 per class; class weights are the square root of inverse frequency.',
   settings: [['max_iter', '300'], ['learning_rate', '0.1'], ['max_leaf_nodes', '63'], ['early_stopping', 'True (10% validation)']],
 };
@@ -65,8 +79,8 @@ export const CLASSIFIER = {
 // How the pieces fit together, in order. Used by the ML Models and Settings views.
 export const FUSION_STEPS = [
   ['Score', 'Each detector scores the flow in its own units.'],
-  ['Rank', 'Each score becomes a percentile of benign calibration flows, so the three share one 0 to 1 scale. A detector “votes” above its 99th benign percentile.'],
-  ['Combine', 'The anomaly score is the mean of the three percentiles, ranked again against benign flows. Averaging beat Fisher’s method, top-2 mean and max on this dataset.'],
+  ['Rank', 'Each score becomes a percentile of benign calibration flows, so the four share one 0 to 1 scale. A detector “votes” above its 99th benign percentile.'],
+  ['Combine', 'The anomaly score is the mean of the four percentiles, ranked again against benign flows. On calibration flows the mean beat Fisher’s method, max, a mean of three without ECOD, and a mean plus a “strong single vote” rule.'],
   ['Classify', 'The classifier returns a probability for every attack family and for benign.'],
   ['Decide', 'Two paths share the alert budget. Known: attack probability above the calibrated threshold, named by the most likely family. Novel: combined anomaly percentile above its threshold, reported as “Novel”.'],
   ['Rate', 'Risk = 100 × likelihood × (0.7 + 0.3 × impact of the family). Likelihood grows with attack probability and with how deep in the benign tail the flow sits.'],

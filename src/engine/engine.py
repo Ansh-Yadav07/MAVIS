@@ -2,10 +2,10 @@
 
 Per flow it combines two independent views:
 
-- **Novelty**: Isolation Forest, LOF and the Autoencoder each score how unusual the flow is
+- **Novelty**: Isolation Forest, LOF, the Autoencoder and ECOD each score how unusual the flow is
   compared with benign traffic. Scores become percentiles of benign traffic, so the three are
-  comparable, and their mean is the anomaly-ensemble percentile.
-- **Recognition**: a gradient-boosted classifier, trained on labelled flows (plus the three
+  comparable, and they are combined (see `_combine`) into the anomaly-ensemble percentile.
+- **Recognition**: a gradient-boosted classifier, trained on labelled flows (plus the
   anomaly percentiles as extra inputs), names the attack family and its probability.
 
 likelihood = 1 - (1 - p_known) * (1 - 0.9 * novelty)     (noisy-OR: either view can raise it)
@@ -30,7 +30,7 @@ from sklearn.neighbors import NearestNeighbors
 
 from .knowledge import NOVEL, THREATS, severity_for
 
-MODEL_NAMES = ('iforest', 'lof', 'ae')
+MODEL_NAMES = ('iforest', 'lof', 'ae', 'ecod')
 BENIGN = 'Benign'
 VOTE_PCT = 0.99           # a model "votes" when the flow is above its 99th benign percentile
 NOVEL_TAIL = (0.05, 0.0005)  # novelty rises from 0 (top 5 % of benign) to 1 (top 0.05 %)
@@ -83,6 +83,7 @@ def _psi(expected_frac, actual_frac, eps=1e-4):
 class MavisEngine:
     def __init__(self, models, preprocessor=None):
         self.models = dict(models)
+        self.names = tuple(n for n in MODEL_NAMES if n in self.models)
         self.preprocessor = preprocessor
         self.features = None
         self.maps = {}
@@ -100,13 +101,17 @@ class MavisEngine:
 
     @staticmethod
     def _combine(pct):
-        """Mean of the model percentiles. On CIC-IDS2017 it beat Fisher's method, top-2 mean and max
-        (recall 0.49 vs 0.24 / 0.06 / 0.17 at 1 % FPR), because attacks tend to be moderately
-        unusual to every model rather than extreme to one."""
+        """Mean of the model percentiles. Chosen among 12 combiners on the calibration half only (recall at
+        1 % FPR; CIC-IDS2017, four detectors): mean of 4 0.519; mean of 3 without ECOD 0.482; mean of 4
+        plus a strong-single-vote path (alert if any detector's percentile is above a cut-off that takes
+        10/20/30/50 % of the novel path's budget) 0.518/0.507/0.469/0.428; Fisher 0.291; max 0.147.
+        Held-out eval: mean of 4 recall 0.522, F1 0.670, ROC-AUC 0.958. A strong-vote path spends false
+        positives on loud benign outliers and loses more mean-path recall than it gains, so plain mean won.
+        ECOD lifts it because it is confident exactly where the others are calm (Heartbleed 0 -> 100 %)."""
         return pct.mean(axis=1)
 
     def _percentiles(self, raw):
-        pct = np.column_stack([self.maps[n](raw[n]) for n in MODEL_NAMES])
+        pct = np.column_stack([self.maps[n](raw[n]) for n in self.names])
         return pct, self.ens_map(self._combine(pct))
 
     @staticmethod
@@ -132,8 +137,8 @@ class MavisEngine:
         self.features = list(X_train.columns)
         y_train, y_calib = np.asarray(y_train, dtype=object), np.asarray(y_calib, dtype=object)
         benign_c = y_calib == BENIGN
-        self.maps = {n: PercentileMap(raw_calib[n][benign_c]) for n in MODEL_NAMES}
-        pct_c = np.column_stack([self.maps[n](raw_calib[n]) for n in MODEL_NAMES])
+        self.maps = {n: PercentileMap(raw_calib[n][benign_c]) for n in self.names}
+        pct_c = np.column_stack([self.maps[n](raw_calib[n]) for n in self.names])
         self.ens_map = PercentileMap(self._combine(pct_c[benign_c]))
 
         # classifier training rows: drop excluded families (novel-attack experiments), cap benign
@@ -215,8 +220,8 @@ class MavisEngine:
         raw = raw if raw is not None else self.model_scores(X)
         X = X.reset_index(drop=True)
         benign = np.ones(len(X), dtype=bool)
-        self.maps = {n: PercentileMap(raw[n]) for n in MODEL_NAMES}
-        pct = np.column_stack([self.maps[n](raw[n]) for n in MODEL_NAMES])
+        self.maps = {n: PercentileMap(raw[n]) for n in self.names}
+        pct = np.column_stack([self.maps[n](raw[n]) for n in self.names])
         self.ens_map = PercentileMap(self._combine(pct))
         self._calibrate(X, raw, benign, target_fpr or self.target_fpr, seed)
         self.meta['recalibrated_on'] = int(len(X))
@@ -269,7 +274,7 @@ class MavisEngine:
             'anomaly_percentile': ens.round(5),
             'model_votes': votes,
         })
-        for i, n in enumerate(MODEL_NAMES):
+        for i, n in enumerate(self.names):
             out[f'pct_{n}'] = pct[:, i].round(5)
         return out
 
@@ -337,11 +342,13 @@ class MavisEngine:
 
     @classmethod
     def load(cls, path):
-        from models import MavisAutoencoder, MavisIsolationForest, MavisLOF
+        from models import MavisAutoencoder, MavisECOD, MavisIsolationForest, MavisLOF
         path = Path(path)
-        models = {'iforest': MavisIsolationForest.load(path / 'iforest.joblib'),
-                  'lof': MavisLOF.load(path / 'lof.joblib'),
-                  'ae': MavisAutoencoder.load(path / 'ae.pt')}
+        files = {'iforest': (MavisIsolationForest, 'iforest.joblib'), 'lof': (MavisLOF, 'lof.joblib'),
+                 'ae': (MavisAutoencoder, 'ae.pt'), 'ecod': (MavisECOD, 'ecod.joblib')}
+        # an engine built before ECOD existed has no ecod.joblib: load the models that are present
+        models = {n: c.load(path / f) for n, (c, f) in files.items() if (path / f).exists()}
         eng = cls(models)
         eng.__dict__.update(joblib.load(path / 'engine.joblib'))
+        eng.names = tuple(n for n in MODEL_NAMES if n in models)
         return eng

@@ -104,9 +104,14 @@ def engine():
     return MavisEngine.load(ENGINE_DIR)
 
 
+TUESDAY = ROOT / 'dataset' / 'Tuesday-WorkingHours.pcap_ISCX.csv'
+
+
 def make_rows(n, offset=0, skip=0):
     from data.cic import FEATURES
-    df = pd.read_csv(ROOT / 'dataset' / 'Tuesday-WorkingHours.pcap_ISCX.csv', encoding='latin-1',
+    if not TUESDAY.exists():
+        pytest.skip('needs dataset/Tuesday-WorkingHours.pcap_ISCX.csv')
+    df = pd.read_csv(TUESDAY, encoding='latin-1',
                      skiprows=range(1, skip + 1), nrows=n)
     df.columns = [c.strip() for c in df.columns]
     rows = []
@@ -208,3 +213,36 @@ def test_http_smoke(engine, tmp_path):
         assert st in (200, 503)
     finally:
         srv.shutdown()
+
+
+def test_flood_from_one_source(tmp_path):
+    hp = warm_profiles(tmp_path)
+    quiet = []
+    for i in range(60):  # 60 flows in 10 s: busy, not a flood
+        quiet += hp.observe(flow('192.168.1.20', '10.0.0.9', 8000, 3000 + i * 0.15))
+    assert not any(x['kind'] == 'flood' for x in quiet)
+    out = []
+    for i in range(150):  # 150 flows in ~7 s to one dst:port
+        out += hp.observe(flow('192.168.1.20', '10.0.0.9', 8000, 4000 + i * 0.05))
+    floods = [x for x in out if x['kind'] == 'flood']
+    assert len(floods) == 1 and floods[0]['severity'] == 'high'  # fires once, then deduped
+
+
+def test_learned_peak_raises_flood_threshold(tmp_path):
+    hp = HostProfiles(str(tmp_path / 'roles.json'))
+    busy = [flow('192.168.1.30', '10.0.0.9', 8000, i * 0.05) for i in range(120)]  # normal for this host
+    hp.learn_from(busy)
+    out = []
+    for i in range(150):
+        out += hp.observe(flow('192.168.1.30', '10.0.0.9', 8000, 1000 + i * 0.05))
+    assert not any(x['kind'] == 'flood' for x in out)  # limit is 4 x 120 = 480
+
+
+def test_distributed_flood_from_external_sources(tmp_path):
+    hp = warm_profiles(tmp_path)
+    out = []
+    for i in range(250):  # 25 internet sources, 10 flows each, within ~5 s
+        out += hp.observe(flow(f'203.0.113.{i % 25 + 1}', '192.168.1.80', 443, 5000 + i * 0.02))
+    ddos = [x for x in out if x['kind'] == 'ddos']
+    assert len(ddos) == 1 and ddos[0]['severity'] == 'critical'
+    assert not any(x['kind'] == 'flood' for x in out)  # no single source is flooding

@@ -32,7 +32,8 @@ function rocRows() {
     ['Isolation Forest', r.iforest, 'var(--m-if)'],
     ['Local Outlier Factor', r.lof, 'var(--m-lof)'],
     ['Autoencoder', r.ae, 'var(--m-ae)'],
-    ['Mean of the three', r.ens_mean, 'var(--ink-3)'],
+    ['ECOD', r.ecod, 'var(--m-ecod)'],
+    ['Mean of the four', r.ens_mean, 'var(--ink-3)'],
     ['MAVIS engine', eng, 'var(--m-engine)'],
   ].filter(([, v]) => v && v.roc_auc != null);
   return rows.map(([label, v, color]) => ({

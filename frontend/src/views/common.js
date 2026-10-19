@@ -62,10 +62,12 @@ export function activityBuckets(list, dayId = null) {
 }
 
 export function agreementCombos(list) {
-  const sets = [['if', 'lof', 'ae'], ['if', 'lof'], ['if', 'ae'], ['lof', 'ae'], ['if'], ['lof'], ['ae']];
+  const ids = MODELS.map((m) => m.id);
+  const sets = ids.reduce((acc, id) => acc.concat(acc.map((s) => [...s, id])), [[]]).filter((s) => s.length)
+    .sort((a, b) => b.length - a.length);
   return sets.map((set) => ({
     set,
-    count: list.filter((f) => ['if', 'lof', 'ae'].every((m) => f.flags[m] === set.includes(m))).length,
+    count: list.filter((f) => ids.every((m) => !!f.flags[m] === set.includes(m))).length,
   }));
 }
 
@@ -89,7 +91,7 @@ export function watch(fn) {
   return store.subscribe((ev) => { if (ev.type !== 'notes') fn(ev); });
 }
 
-// Which parts of the engine flagged a flow: the three anomaly detectors and the classifier.
+// Which parts of the engine flagged a flow: the anomaly detectors and the classifier.
 export const detectedBy = (f) => {
   const names = MODELS.filter((m) => f.flags?.[m.id]).map((m) => m.short);
   if (f.mode && f.mode.includes('known')) names.push('CLF');

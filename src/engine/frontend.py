@@ -9,12 +9,12 @@ import pandas as pd
 
 from data.cic import attack_category
 
-from .engine import MODEL_NAMES, VOTE_PCT
+from .engine import VOTE_PCT
 from .knowledge import THREATS
 from .report import analyze
 
 # Engine model ids -> console ids.
-UI_ID = {'iforest': 'if', 'lof': 'lof', 'ae': 'ae'}
+UI_ID = {'iforest': 'if', 'lof': 'lof', 'ae': 'ae', 'ecod': 'ecod'}
 SEVERITY_UI = {'Critical': 'critical', 'High': 'high', 'Medium': 'medium', 'Low': 'low', 'None': 'none'}
 FEATURE_KEYS = [
     'Flow Duration', 'Total Fwd Packets', 'Total Backward Packets', 'Flow Bytes/s', 'Flow Packets/s',
@@ -42,7 +42,7 @@ def baseline_medians(engine):
 def native_cutoffs(engine):
     """Each model's raw score at its vote percentile: the per-model cut-off the console draws."""
     out = {}
-    for n in MODEL_NAMES:
+    for n in engine.names:
         pm = engine.maps[n]
         out[UI_ID[n]] = float(np.interp(VOTE_PCT, pm.p, pm.x))
     return out
@@ -72,7 +72,7 @@ def flow_records(engine, flows, internals, rows, id_prefix, day=None, file=None,
         family = f['threat_family'] or None
         info = THREATS.get(family) if family else None
         dst_port = _num(c.get('dst_port'), 0) if 'dst_port' in c else None
-        flags = {UI_ID[n]: bool(f[f'pct_{n}'] >= VOTE_PCT) for n in MODEL_NAMES}
+        flags = {UI_ID[n]: bool(f[f'pct_{n}'] >= VOTE_PCT) for n in engine.names}
         rec = {
             'id': f'{id_prefix}{r}',
             'row': int(r),
@@ -91,8 +91,8 @@ def flow_records(engine, flows, internals, rows, id_prefix, day=None, file=None,
             'features': {k: _num(fe.get(k)) for k in FEATURE_KEYS},
             'label': label,
             'category': attack_category(label) if label else None,
-            'scores': {UI_ID[n]: _num(raw[n][r], 5) for n in MODEL_NAMES},
-            'pct': {UI_ID[n]: _num(f[f'pct_{n}'], 5) for n in MODEL_NAMES},
+            'scores': {UI_ID[n]: _num(raw[n][r], 5) for n in engine.names},
+            'pct': {UI_ID[n]: _num(f[f'pct_{n}'], 5) for n in engine.names},
             'flags': flags,
             'agree': int(sum(flags.values())),
             'risk': _num(f['risk_score'], 1),
@@ -200,6 +200,9 @@ def engine_meta(engine):
         'ae': {'input_dim': m['ae'].input_dim, **{k: (list(v) if isinstance(v, tuple) else v)
                                                   for k, v in m['ae'].config.items()}},
     }
+    if 'ecod' in m:
+        params['ecod'] = {'grid_points': max(len(k[0]) for k in m['ecod'].knots), 'features': len(m['ecod'].knots),
+                          'n_train': int(m['ecod'].n_train)}
     if hasattr(m['lof'], 'max_train_samples'):
         params['lof']['max_train_samples'] = m['lof'].max_train_samples
     return {

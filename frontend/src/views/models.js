@@ -1,4 +1,4 @@
-// ML Models: the three detectors, the attack classifier and the fusion that combines them.
+// ML Models: the four detectors, the attack classifier and the fusion that combines them.
 // Hyperparameters, cut-offs and metrics are read from the exported snapshot; the prose comes
 // from data/model-registry.js and mirrors src/models/*.py and src/engine/engine.py.
 import { html, mount } from '../core/dom.js';
@@ -8,7 +8,7 @@ import { engine, evaluation, currentBudget } from '../data/index.js';
 import { MODELS, CLASSIFIER, FUSION_STEPS } from '../data/model-registry.js';
 import { pageHead, panel, ratioBar, pctText, watch, noData } from './common.js';
 
-const ENG_KEY = { if: 'iforest', lof: 'lof', ae: 'ae' };
+const ENG_KEY = { if: 'iforest', lof: 'lof', ae: 'ae', ecod: 'ecod' };
 const CATS = ['DoS', 'DDoS', 'PortScan', 'BruteForce', 'WebAttack', 'Bot', 'Infiltration', 'Heartbleed'];
 const num = (v, d = 3) => (v == null ? 'n/a' : v.toFixed(d));
 const fmtParam = (v) => (Array.isArray(v) ? v.join(', ') : typeof v === 'boolean' ? (v ? 'True' : 'False') : String(v));

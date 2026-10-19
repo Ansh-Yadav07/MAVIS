@@ -1,6 +1,6 @@
 """Build and evaluate the MAVIS risk engine.
 
-Run from the repo root after `python scripts/train_evaluate.py` (which trains the three anomaly
+Run from the repo root after `python scripts/train_evaluate.py` (which trains the four anomaly
 models into results/models/ and caches their scores in results/scores/):
 
     python scripts/build_engine.py                              # build, evaluate, save results/engine/
@@ -31,10 +31,10 @@ sys.path.insert(0, str(ROOT / 'src'))
 from data import FlowPreprocessor, load_split  # noqa: E402
 from engine import MavisEngine, evaluate  # noqa: E402
 from engine.engine import MODEL_NAMES  # noqa: E402
-from models import MavisAutoencoder, MavisIsolationForest, MavisLOF  # noqa: E402
+from models import MavisAutoencoder, MavisECOD, MavisIsolationForest, MavisLOF  # noqa: E402
 
 LOADERS = {'iforest': (MavisIsolationForest, 'iforest.joblib'), 'lof': (MavisLOF, 'lof.joblib'),
-           'ae': (MavisAutoencoder, 'ae.pt')}
+           'ae': (MavisAutoencoder, 'ae.pt'), 'ecod': (MavisECOD, 'ecod.joblib')}
 
 
 def summarise(name, flows, cats):
@@ -77,7 +77,7 @@ def main():
         raw[n] = np.load(f)
         if len(raw[n]) != len(X):
             sys.exit(f"{f} has {len(raw[n])} rows, test has {len(X)}: re-run scripts/train_evaluate.py")
-    models = {n: cls.load(a.model_dir / fname) for n, (cls, fname) in LOADERS.items()}
+    models = {n: cls.load(a.model_dir / fname) for n, (cls, fname) in LOADERS.items() if n in MODEL_NAMES}
 
     idx = np.arange(len(X))
     fit_idx, eval_idx = train_test_split(idx, test_size=0.5, stratify=cats, random_state=a.seed)

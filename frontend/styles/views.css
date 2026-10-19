@@ -65,7 +65,7 @@
 .panel-meta a, .prose a, .report a { color: var(--accent-ink); }
 
 /* ---------- Network ---------- */
-.net-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-4); }
+.net-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-4); }
 .net-grid > .span-3 { grid-column: 1 / -1; }
 
 /* ---------- Threats ---------- */
@@ -162,12 +162,13 @@
 .steps li > div { display: grid; gap: 2px; font-size: var(--fs-sm); color: var(--ink-2); }
 .steps b { color: var(--ink-1); font-weight: 600; }
 .fusion-foot { margin-top: 16px; display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 24px; align-items: start; }
-.models-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-4); }
+.models-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-4); }
 .models-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
 .model-card { background: var(--surface-1); border: 1px solid var(--line); border-radius: var(--r-2); border-top: 3px solid var(--line-strong); padding: 16px; display: grid; gap: 12px; align-content: start; min-width: 0; font-size: var(--fs-sm); color: var(--ink-2); }
 .model-card[data-m="if"] { border-top-color: var(--m-if); }
 .model-card[data-m="lof"] { border-top-color: var(--m-lof); }
 .model-card[data-m="ae"] { border-top-color: var(--m-ae); }
+.model-card[data-m="ecod"] { border-top-color: var(--m-ecod); }
 .model-card[data-m="clf"] { border-top-color: var(--m-engine); }
 .model-card-head { display: flex; align-items: center; gap: 10px; }
 .model-card-head h2 { font-size: var(--fs-lg); font-weight: 600; color: var(--ink-1); flex: 1; }
@@ -199,7 +200,7 @@
 .ds-stats .metric { padding: 16px 18px; border-right: 1px solid var(--line); }
 .ds-stats .metric:last-child { border-right: 0; }
 .ds-stats .metric-hero .metric-value { font-size: 2.25rem; }
-.ds-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-4); }
+.ds-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-4); }
 .quality { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
 .quality li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 10px; font-size: var(--fs-sm); }
 .quality li > div { display: grid; gap: 1px; }

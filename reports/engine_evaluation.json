@@ -2,7 +2,7 @@
   "alert_budget_fpr": 0.01,
   "alert_threshold": {
     "known": 0.5,
-    "novel": 0.9916585685989687
+    "novel": 0.9916495351948129
   },
   "synthetic_rows": {
     "Bot": 1318,
@@ -11,31 +11,31 @@
     "WebAttack": 1250
   },
   "engine": {
-    "precision": 0.9655,
-    "recall": 0.9996,
-    "f1": 0.9822,
-    "fpr": 0.0096,
+    "precision": 0.9647,
+    "recall": 0.9995,
+    "f1": 0.9818,
+    "fpr": 0.0099,
     "per_category": {
       "DoS": {
         "n": 96865,
-        "alerted": 0.9997,
+        "alerted": 0.9995,
         "named_correctly": 0.9999,
         "flagged_novel": 0.0
       },
       "Benign": {
         "n": 789825,
-        "alerted": 0.0096
+        "alerted": 0.0099
       },
       "PortScan": {
         "n": 45347,
-        "alerted": 0.9998,
+        "alerted": 0.9997,
         "named_correctly": 0.9997,
         "flagged_novel": 0.0
       },
       "DDoS": {
         "n": 64007,
         "alerted": 0.9999,
-        "named_correctly": 0.9998,
+        "named_correctly": 0.9999,
         "flagged_novel": 0.0
       },
       "BruteForce": {
@@ -46,13 +46,13 @@
       },
       "Bot": {
         "n": 974,
-        "alerted": 0.9651,
+        "alerted": 0.9641,
         "named_correctly": 1.0,
         "flagged_novel": 0.0
       },
       "WebAttack": {
         "n": 1072,
-        "alerted": 0.9935,
+        "alerted": 0.9925,
         "named_correctly": 0.9962,
         "flagged_novel": 0.0
       },
@@ -72,50 +72,50 @@
     "roc_auc": 0.9995,
     "pr_auc": 0.9952,
     "verdicts": {
-      "normal": 782315,
-      "malicious": 213965,
-      "suspicious": 6408
+      "normal": 782157,
+      "malicious": 213919,
+      "suspicious": 6612
     }
   },
   "anomaly_only": {
-    "precision": 0.9308,
-    "recall": 0.4846,
-    "f1": 0.6374,
-    "fpr": 0.0097,
+    "precision": 0.934,
+    "recall": 0.522,
+    "f1": 0.6697,
+    "fpr": 0.0099,
     "per_category": {
       "DoS": {
         "n": 96865,
-        "alerted": 0.6818,
+        "alerted": 0.7472,
         "named_correctly": 0.0,
         "flagged_novel": 1.0
       },
       "Benign": {
         "n": 789825,
-        "alerted": 0.0097
+        "alerted": 0.0099
       },
       "PortScan": {
         "n": 45347,
-        "alerted": 0.1338,
+        "alerted": 0.0006,
         "named_correctly": 0.0,
         "flagged_novel": 1.0
       },
       "DDoS": {
         "n": 64007,
-        "alerted": 0.4849,
+        "alerted": 0.6046,
         "named_correctly": 0.0,
         "flagged_novel": 1.0
       },
       "BruteForce": {
         "n": 4575,
-        "alerted": 0.0024,
-        "named_correctly": 0.0,
-        "flagged_novel": 1.0
-      },
-      "Bot": {
-        "n": 974,
         "alerted": 0.0,
         "named_correctly": 0.0,
         "flagged_novel": 0.0
+      },
+      "Bot": {
+        "n": 974,
+        "alerted": 0.0072,
+        "named_correctly": 0.0,
+        "flagged_novel": 1.0
       },
       "WebAttack": {
         "n": 1072,
@@ -125,76 +125,76 @@
       },
       "Infiltration": {
         "n": 18,
-        "alerted": 0.1667,
+        "alerted": 0.3333,
         "named_correctly": 0.0,
         "flagged_novel": 1.0
       },
       "Heartbleed": {
         "n": 5,
-        "alerted": 0.0,
+        "alerted": 1.0,
         "named_correctly": 0.0,
-        "flagged_novel": 0.0
+        "flagged_novel": 1.0
       }
     },
-    "roc_auc": 0.9632,
-    "pr_auc": 0.8652,
+    "roc_auc": 0.9576,
+    "pr_auc": 0.8608,
     "verdicts": {
-      "normal": 891857,
-      "suspicious": 110831
+      "normal": 883715,
+      "suspicious": 118973
     }
   },
   "zero_day": {
     "Bot": {
       "n": 974,
-      "alerted": 0.0,
-      "as_novel": 0.0,
-      "anomaly_path_fired": 0.0,
+      "alerted": 0.0062,
+      "as_novel": 0.0062,
+      "anomaly_path_fired": 0.0062,
       "misnamed_as": {},
-      "benign_fpr": 0.0097
+      "benign_fpr": 0.01
     },
     "PortScan": {
       "n": 45347,
-      "alerted": 0.1169,
-      "as_novel": 0.1123,
-      "anomaly_path_fired": 0.1123,
+      "alerted": 0.0045,
+      "as_novel": 0.0,
+      "anomaly_path_fired": 0.0006,
       "misnamed_as": {
-        "BruteForce": 125,
+        "BruteForce": 120,
         "DoS": 78,
         "WebAttack": 5
       },
-      "benign_fpr": 0.0096
+      "benign_fpr": 0.0099
     },
     "WebAttack": {
       "n": 1072,
-      "alerted": 0.2612,
+      "alerted": 0.4851,
       "as_novel": 0.0,
       "anomaly_path_fired": 0.0,
       "misnamed_as": {
-        "DoS": 257,
-        "PortScan": 23
+        "DoS": 494,
+        "PortScan": 26
       },
-      "benign_fpr": 0.0096
+      "benign_fpr": 0.0099
     },
     "DDoS": {
       "n": 64007,
-      "alerted": 0.6322,
-      "as_novel": 0.0009,
-      "anomaly_path_fired": 0.4501,
+      "alerted": 0.6367,
+      "as_novel": 0.0,
+      "anomaly_path_fired": 0.5666,
       "misnamed_as": {
-        "DoS": 40349,
-        "PortScan": 61
+        "DoS": 40752,
+        "PortScan": 1
       },
-      "benign_fpr": 0.0096
+      "benign_fpr": 0.0098
     },
     "BruteForce": {
       "n": 4575,
-      "alerted": 0.0028,
-      "as_novel": 0.0015,
-      "anomaly_path_fired": 0.0015,
+      "alerted": 0.0013,
+      "as_novel": 0.0,
+      "anomaly_path_fired": 0.0,
       "misnamed_as": {
         "PortScan": 6
       },
-      "benign_fpr": 0.0096
+      "benign_fpr": 0.0099
     }
   }
 }

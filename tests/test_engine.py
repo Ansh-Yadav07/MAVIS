@@ -42,7 +42,7 @@ def fitted():
     pre = FlowPreprocessor().fit(raw[raw['Label'] == 'BENIGN'])
     X = pre.transform(raw)
     y = raw['Label'].replace({'BENIGN': 'Benign'}).to_numpy().astype(object)
-    models = {n: NormModel(list(range(lo, hi))) for n, (lo, hi) in zip(MODEL_NAMES, [(0, 69), (0, 50), (20, 69)])}
+    models = {n: NormModel(list(range(lo, hi))) for n, (lo, hi) in zip(MODEL_NAMES, [(0, 69), (0, 50), (20, 69), (10, 60)])}
     eng = MavisEngine(models, pre)
     idx = rng.permutation(len(X))
     tr, cal, ev = idx[:2000], idx[2000:3500], idx[3500:]

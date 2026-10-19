@@ -3,7 +3,7 @@
 Run from the repo root after `python scripts/preprocess.py` (anomaly mode):
 
     python scripts/train_evaluate.py                          # all models, full test set
-    python scripts/train_evaluate.py --models iforest ae      # skip LOF (slowest to score)
+    python scripts/train_evaluate.py --models iforest ae ecod  # skip LOF (slowest to score)
     python scripts/train_evaluate.py --max-test-benign 200000 # quicker: subsample benign test flows
 
     python scripts/train_evaluate.py --reuse-scores           # re-run the comparison from cached scores
@@ -39,15 +39,17 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
 
 from data import load_split  # noqa: E402
-from models import MavisAutoencoder, MavisIsolationForest, MavisLOF  # noqa: E402
+from models import MavisAutoencoder, MavisECOD, MavisIsolationForest, MavisLOF  # noqa: E402
 
-MODEL_NAMES = ['iforest', 'lof', 'ae']
+MODEL_NAMES = ['iforest', 'lof', 'ae', 'ecod']
 
 
 def build(name, n_features, a):
     # Parameters follow results/hpo/final_hpo_report.json where the wrapper exposes them.
     if name == 'iforest':
         return MavisIsolationForest(n_estimators=300, max_samples=0.75, max_features=0.5, random_state=a.seed)
+    if name == 'ecod':
+        return MavisECOD()
     if name == 'lof':
         return MavisLOF(n_neighbors=50, metric='euclidean', leaf_size=40, max_train_samples=a.lof_train_samples)
     device = 'mps' if a.device == 'auto' and _mps_available() else ('cpu' if a.device == 'auto' else a.device)

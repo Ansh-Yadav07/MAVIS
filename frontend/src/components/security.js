@@ -25,9 +25,9 @@ export const ipText = (ip, port, { scope = false } = {}) => ip == null
 
 export const protoTag = (p) => (p ? html`<span class="proto">${p}</span>` : '');
 
-// Score bars use each detector's benign percentile (0..1), so the three share one scale;
+// Score bars use each detector's benign percentile (0..1), so the detectors share one scale;
 // the cut-off is the engine's vote percentile (a detector "flags" above it).
-export const SCORE_RANGE = { if: [0.5, 1], lof: [0.5, 1], ae: [0.5, 1] };
+export const SCORE_RANGE = { if: [0.5, 1], lof: [0.5, 1], ae: [0.5, 1], ecod: [0.5, 1] };
 export const cutoffFor = () => engine().votePercentile;
 export const nativeCutoff = (id) => engine().cutoffs[id];
 

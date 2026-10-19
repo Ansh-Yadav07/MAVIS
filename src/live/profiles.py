@@ -23,6 +23,8 @@ MITRE = {
     'new-internal-peer': [{'tactic': 'TA0007 Discovery', 'technique': 'T1018 Remote System Discovery'}],
     'fan-out': [{'tactic': 'TA0007 Discovery', 'technique': 'T1046 Network Service Discovery'},
                 {'tactic': 'TA0008 Lateral Movement', 'technique': 'T1021 Remote Services'}],
+    'flood': [{'tactic': 'TA0040 Impact', 'technique': 'T1499 Endpoint Denial of Service'}],
+    'ddos': [{'tactic': 'TA0040 Impact', 'technique': 'T1498 Network Denial of Service'}],
 }
 ACTIONS = {
     'new-service': ['Confirm with the host owner that this access is expected.',
@@ -36,8 +38,20 @@ ACTIONS = {
     'fan-out': ['Isolate the host and investigate for scanning or lateral movement.',
                 'Review recent logins and processes on the host.',
                 'Reset credentials that were used from it.'],
+    'flood': ['Rate-limit or block the source at the firewall / load balancer.',
+              'Check the target service for exhausted connections or workers.',
+              'If the source is internal, check it for malware or a misbehaving script.'],
+    'ddos': ['Enable upstream protection for the target (ISP scrubbing, Cloudflare Under Attack mode).',
+             'Rate-limit the targeted service by request pattern rather than by single IP.',
+             'Watch the target service health and inform the team.'],
 }
 WARMUP = timedelta(minutes=10)
+# Volume rules: per-flow models judge each connection alone, so a flood of ordinary-looking
+# requests passes them. These count flows per short window instead.
+RATE_WINDOW = timedelta(seconds=10)
+FLOOD_MIN = 100          # one source -> one dst:port, flows per 10 s (raised to 4x the learned peak)
+DDOS_SOURCES = 20        # distinct sources hitting one dst:port within 10 s ...
+DDOS_FLOWS = 200         # ... with at least this many flows in total
 FAN_WINDOW = timedelta(seconds=60)
 DEDUPE = timedelta(minutes=10)
 
@@ -79,6 +93,7 @@ class _Host:
         self.flows = 0
         self.learned = False
         self.recent = deque()   # (ts, dst, port) for fan-out
+        self.peak_rate = 0      # learned: most flows to one dst:port in any 10 s window
 
 
 class HostProfiles:
@@ -90,6 +105,9 @@ class HostProfiles:
         self.last_alert = {}
         self.learned = False
         self.roles = {'roles': {}, 'hosts': {}}
+        self.pair_recent = {}   # (src, dst, port) -> deque[ts]   for floods
+        self.dst_recent = {}    # (dst, port) -> deque[(ts, src)] for distributed floods
+        self._pruned = 0
         self.load_roles()
 
     def load_roles(self):
@@ -123,14 +141,30 @@ class HostProfiles:
                 h.flows += 1
                 if c in SENSITIVE and is_internal(dst):
                     h.peers.add(dst)
+            # learned peak rate per host, so busy-but-normal hosts don't trip the flood rule
+            windows = {}
+            for f in flows:
+                if f['src']['ip']:
+                    key = (f['src']['ip'], f['dst']['ip'], f['dst'].get('port'))
+                    windows.setdefault(key, []).append(parse_ts(f.get('ts')))
+            for (src, _, _), times in windows.items():
+                times.sort()
+                lo, best = 0, 0
+                for hi, t in enumerate(times):
+                    while t - times[lo] > RATE_WINDOW:
+                        lo += 1
+                    best = max(best, hi - lo + 1)
+                h = self.hosts.get(src)
+                if h is not None:
+                    h.peak_rate = max(h.peak_rate, best)
             for h in self.hosts.values():
                 h.learned = True
             self.learned = True
 
-    def _alert(self, f, h, kind, service, severity, risk, title, detail):
+    def _alert(self, f, h, kind, service, severity, risk, title, detail, key=None):
         src, dst, port = f['src']['ip'], f['dst']['ip'], f['dst'].get('port')
         ts = parse_ts(f.get('ts'))
-        key = (src, kind, service if kind != 'new-internal-peer' else dst)
+        key = key or (src, kind, service if kind != 'new-internal-peer' else dst)
         prev = self.last_alert.get(key)
         if prev and ts - prev < DEDUPE:
             return None
@@ -140,11 +174,53 @@ class HostProfiles:
                 'kind': kind, 'service': service, 'severity': severity, 'risk': risk, 'title': title,
                 'detail': detail, 'mitre': MITRE[kind], 'actions': ACTIONS[kind], 'flowId': f.get('id')}
 
+    def _rate_alerts(self, f, src, dst, port, ts):
+        """Flood (one source) and distributed flood (many sources) on one dst:port."""
+        out = []
+        pk = (src, dst, port)
+        q = self.pair_recent.setdefault(pk, deque())
+        q.append(ts)
+        while q and ts - q[0] > RATE_WINDOW:
+            q.popleft()
+        h = self.hosts.get(src)
+        limit = max(FLOOD_MIN, 4 * (h.peak_rate if h else 0))
+        if len(q) >= limit:
+            a = self._alert(f, h, 'flood', service_class(port), 'high', 80,
+                            f'{src} sent {len(q)} connections to {dst}:{port} in 10 s',
+                            f'Flood threshold for this source: {limit} flows per 10 s'
+                            + (f' (4x its learned peak of {h.peak_rate}).' if h and h.peak_rate else '.'))
+            if a:
+                out.append(a)
+        dk = (dst, port)
+        dq = self.dst_recent.setdefault(dk, deque())
+        dq.append((ts, src))
+        while dq and ts - dq[0][0] > RATE_WINDOW:
+            dq.popleft()
+        if len(dq) >= DDOS_FLOWS:
+            sources = {s for _, s in dq}
+            if len(sources) >= DDOS_SOURCES:
+                a = self._alert(f, h, 'ddos', service_class(port), 'critical', 92,
+                                f'{dst}:{port} received {len(dq)} connections from {len(sources)} sources in 10 s',
+                                'Many sources at once: a distributed flood. Blocking single IPs will not stop it.',
+                                key=(dst, 'ddos', port))
+                if a:
+                    out.append(a)
+        self._pruned += 1
+        if self._pruned >= 5000:  # drop idle windows so memory stays bounded on long runs
+            self._pruned = 0
+            for d in (self.pair_recent, self.dst_recent):
+                for k in [k for k, v in d.items() if not v or ts - (v[-1] if d is self.pair_recent else v[-1][0]) > RATE_WINDOW]:
+                    del d[k]
+        return out
+
     def observe(self, f):
         """Update the profile with one flow; return the insider alerts it triggers."""
         src, dst, port = f['src']['ip'], f['dst']['ip'], f['dst'].get('port')
-        if not src or not is_internal(src):
+        if not src:
             return []
+        if not is_internal(src):
+            with self.lock:
+                return self._rate_alerts(f, src, dst, port, parse_ts(f.get('ts')))
         with self.lock:
             ts = parse_ts(f.get('ts'))
             h = self._host(src, ts)
@@ -152,6 +228,7 @@ class HostProfiles:
             c = service_class(port)
             out = []
             warming = not h.learned and ts - h.first < WARMUP
+            out += self._rate_alerts(f, src, dst, port, ts)
             base = ', '.join(sorted(h.services, key=h.services.get, reverse=True)[:5]) or 'none'
             nbase = sum(h.services.values())
             detail_base = f'Baseline for this host: {base} ({nbase} flows).'
