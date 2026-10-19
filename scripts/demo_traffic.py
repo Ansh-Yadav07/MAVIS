@@ -67,7 +67,7 @@ def normal(a):
         url = a.base + paths[i % len(paths)]
         print(f'GET {url} ->', 'ok' if get(url) else 'failed')
         i += 1
-        time.sleep(2 + (i % 3))
+        time.sleep(0.2 + (i % 3) * 0.2)  # brisk browsing: enough flows to finish learning in ~2 min
 
 
 def portscan(a):

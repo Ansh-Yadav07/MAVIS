@@ -30,6 +30,9 @@ class LivePipeline:
         self.response = response
         self.profiles = profiles if profiles is not None else HostProfiles()
         self.lock = threading.RLock()
+        # Scoring runs under its own lock so /api/live polls are never blocked by a big batch.
+        # Lock order is always score_lock -> lock.
+        self.score_lock = threading.Lock()
         self.calibrated = False
         self.calibrated_at = None
         self.learning = self._fresh_learning()
@@ -69,17 +72,30 @@ class LivePipeline:
             self.sensor['lastSeen'] = _iso(now)
             if not rows:
                 return {'accepted': 0, 'alerts': 0, 'seq': self.seq}
-            df = pd.DataFrame(rows)
-            if 'Destination Port' not in df.columns:
-                for alt in ('Dst Port', 'Dest Port'):
-                    if alt in df.columns:
-                        df['Destination Port'] = df[alt]
-                        break
-            recs = self._score(df, self.sensor.get('id') or 'sensor')
-            alerts = 0
-            for rec in recs:
-                alerts += self._record(rec, now)
-            return {'accepted': len(recs), 'alerts': alerts, 'seq': self.seq}
+            file = self.sensor.get('id') or 'sensor'
+        df = pd.DataFrame(rows)
+        if 'Destination Port' not in df.columns:
+            for alt in ('Dst Port', 'Dest Port'):
+                if alt in df.columns:
+                    df['Destination Port'] = df[alt]
+                    break
+        with self.score_lock:
+            recs, X, raw = self._score(df, file)
+            with self.lock:
+                if self.learning['active']:
+                    self._learn_collect(X, raw)
+                alerts = 0
+                for rec in recs:
+                    alerts += self._record(rec, now)
+                done = self.learning.pop('_ready', False)
+                result = {'accepted': len(recs), 'alerts': alerts, 'seq': self.seq}
+        if done:  # learning reached its target: apply it straight away
+            try:
+                self.learn('apply')
+            except ValueError as exc:
+                with self.lock:
+                    self.learning['error'] = str(exc)
+        return result
 
     def _score(self, df, file):
         eng = self.engine
@@ -99,9 +115,7 @@ class LivePipeline:
                 for rec, r in zip(flow_records(eng, scored, internals, rows, 'live:', day='live', file=file,
                                                explain=explain), rows):
                     by_row[r] = rec
-        if self.learning['active']:
-            self._learn_collect(X, raw)
-        return [by_row[r] for r in range(len(scored))]
+        return [by_row[r] for r in range(len(scored))], X, raw
 
     def _record(self, rec, now):
         self.seq += 1
@@ -167,9 +181,10 @@ class LivePipeline:
         self.learning['flows'] = sum(len(x) for x in self._buf_X)
         if self.learning['flows'] >= self.learning['target']:
             self.learning['active'] = False
+            self.learning['_ready'] = True
 
     def learn(self, action, target=None):
-        with self.lock:
+        with self.score_lock, self.lock:
             if action == 'start':
                 t = int(target or 3000)
                 self.learning.update(self._fresh_learning(max(1, t)))
@@ -188,7 +203,7 @@ class LivePipeline:
                 self.profiles.learn_from(self._buf_flows)
                 self.calibrated = True
                 self.calibrated_at = _iso()
-                self.learning.update(calibrated=True, calibratedAt=self.calibrated_at)
+                self.learning.update(calibrated=True, calibratedAt=self.calibrated_at, error=None)
             else:
                 raise ValueError(f'unknown action: {action!r}')
             return dict(self.learning)

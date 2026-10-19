@@ -210,8 +210,8 @@ class MavisEngine:
         this network's own traffic, treated as normal. The models and the classifier are not
         retrained; only what counts as unusual *here* changes. Use a capture with no known attacks.
         """
-        if len(X) < 500:
-            raise ValueError(f"need at least 500 normal flows to recalibrate, got {len(X)}")
+        if len(X) < 200:
+            raise ValueError(f"need at least 200 normal flows to learn from, got {len(X)}: keep learning a little longer")
         raw = raw if raw is not None else self.model_scores(X)
         X = X.reset_index(drop=True)
         benign = np.ones(len(X), dtype=bool)

@@ -87,7 +87,7 @@ export default {
         const pct = L.target ? Math.min(100, (L.flows / L.target) * 100) : 0;
         return html`<div class="lv-learn">
           <div class="lv-learn-row"><b>${L.active ? 'Learning normal traffic' : L.calibrated ? 'Calibrated on your network' : 'Not calibrated on your network'}</b>
-            <span class="panel-meta">${L.active ? `${fmtInt(L.flows)} / ${fmtInt(L.target)} flows` : L.calibrated ? `applied ${L.calibratedAt ? new Date(L.calibratedAt).toLocaleString() : ''}` : 'Using the CIC-IDS2017 thresholds. Learning never starts on its own.'}</span>
+            <span class="panel-meta">${L.active ? `${fmtInt(L.flows)} / ${fmtInt(L.target)} flows · applies automatically at the target` : L.error ? L.error : L.calibrated ? `applied ${L.calibratedAt ? new Date(L.calibratedAt).toLocaleString() : ''}` : 'Using the CIC-IDS2017 thresholds. Learning never starts on its own.'}</span>
             <span class="spacer" style="flex:1"></span>
             ${L.active ? html`<button class="btn btn-sm" data-learn="stop">Stop learning</button><button class="btn btn-sm btn-primary" data-learn="apply" ${L.flows ? '' : 'disabled'}>Apply</button>`
               : html`<button class="btn btn-sm btn-primary" data-learn="start">Start learning</button>${L.flows ? html`<button class="btn btn-sm" data-learn="apply">Apply ${fmtInt(L.flows)} flows</button>` : ''}`}</div>
@@ -141,7 +141,7 @@ export default {
 
     const act = async (fn, ok) => { try { await fn(); if (ok) toast(ok); } catch (e) { toast(e.message, { tone: 'error' }); } };
     on(root, 'click', '[data-open]', (_e, b) => openFlowDrawer(b.dataset.open));
-    on(root, 'click', '[data-learn]', (_e, b) => act(() => liveLearn(b.dataset.learn, 3000), b.dataset.learn === 'apply' ? 'Thresholds recalibrated from learned traffic' : ''));
+    on(root, 'click', '[data-learn]', (_e, b) => act(() => liveLearn(b.dataset.learn, 400), b.dataset.learn === 'apply' ? 'Thresholds recalibrated from learned traffic' : ''));
     on(root, 'click', '[data-reset]', async () => {
       if (await confirmDialog({ title: 'Reset live data?', body: 'Clears live flows, stats and insider alerts. Blocks and host profiles are kept.', confirmLabel: 'Reset' })) act(liveReset, 'Live data cleared');
     });
