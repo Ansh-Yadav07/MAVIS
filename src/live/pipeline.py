@@ -10,6 +10,7 @@ import pandas as pd
 from engine.frontend import flow_records
 from engine.report import normalise_flows
 
+from .episodes import EpisodeTracker
 from .profiles import HostProfiles, service_class
 
 RING = 5000
@@ -43,6 +44,8 @@ class LivePipeline:
         self._buf_X, self._buf_raw, self._buf_flows = [], [], []
         self.sensor = {'connected': False, 'id': None, 'iface': None, 'lastSeen': None, 'mode': None}
         self._last_seen = 0.0
+        self.sensors = {}  # id -> {id, iface, mode, lastTs, flows}
+        self.episodes = EpisodeTracker(response)
         self.reset()
 
     @staticmethod
@@ -61,6 +64,7 @@ class LivePipeline:
             self.total = {'flows': 0, 'alerts': 0}
             self.by_sev, self.by_family, self.by_verdict = {}, {}, {}
             self.timeline = {}
+            self.episodes.reset()
 
     def _bump(self, d, k, n=1):
         d[k] = d.get(k, 0) + n
@@ -71,9 +75,16 @@ class LivePipeline:
         rows = payload.get('flows') or []
         with self.lock:
             now = time.time()
-            self._last_seen = now
-            self.sensor.update({k: sensor.get(k) for k in ('id', 'iface', 'mode') if sensor.get(k) is not None})
-            self.sensor['lastSeen'] = _iso(now)
+            sid = sensor.get('id') or 'sensor'
+            s = self.sensors.setdefault(sid, {'id': sid, 'iface': None, 'mode': None, 'lastTs': 0.0, 'flows': 0})
+            s.update({k: sensor.get(k) for k in ('iface', 'mode') if sensor.get(k) is not None})
+            s['lastTs'] = now
+            s['flows'] += len(rows)
+            if not self._is_sim(s) or not any(not self._is_sim(x) for x in self.sensors.values()):
+                # top-level sensor: the latest real sensor, or the simulator when it is the only one
+                self._last_seen = now
+                self.sensor.update({k: sensor.get(k) for k in ('id', 'iface', 'mode') if sensor.get(k) is not None})
+                self.sensor['lastSeen'] = _iso(now)
             if not rows:
                 return {'accepted': 0, 'alerts': 0, 'seq': self.seq}
             file = self.sensor.get('id') or 'sensor'
@@ -101,6 +112,7 @@ class LivePipeline:
                 done = self.learning.pop('_ready', False)
                 result = {'accepted': len(recs) + len(shed), 'scored': len(recs), 'shed': len(shed),
                           'alerts': alerts, 'seq': self.seq}
+        self.episodes.flush()
         if done:  # learning reached its target: apply it straight away
             try:
                 self.learn('apply')
@@ -108,6 +120,19 @@ class LivePipeline:
                 with self.lock:
                     self.learning['error'] = str(exc)
         return result
+
+    @staticmethod
+    def _is_sim(s):
+        return s.get('id') == 'simulator' or s.get('mode') == 'sim'
+
+    def _episode_alert(self, a):
+        """Feed an insider/volume alert into the episode tracker."""
+        kind = a.get('kind')
+        family = {'ddos': 'DDoS', 'flood': 'DoS'}.get(kind, 'Insider')
+        target = a['src'] if kind == 'fan-out' else a['dst']
+        self.episodes.add(family, a['title'] if family == 'Insider' else (
+            'Distributed denial of service' if family == 'DDoS' else 'Denial of service'),
+            a['severity'], target, a['src'], a.get('mitre'), rule=True)
 
     def _observe_shed(self, rows, now):
         """Flows not scored by the models: count them and run the volume rules on them."""
@@ -126,6 +151,7 @@ class LivePipeline:
                  'dst': {'ip': pick(r, 'Dst IP', 'Destination IP'), 'port': pick(r, 'Dst Port', 'Destination Port')}}
             for a in self.profiles.observe(f):
                 self.insider.append(a)
+                self._episode_alert(a)
 
     def _score(self, df, file):
         eng = self.engine
@@ -158,11 +184,15 @@ class LivePipeline:
         for a in self.profiles.observe(rec):
             self.insider.append(a)
             rec['insider'].append(a['id'])
+            self._episode_alert(a)
         if is_alert and self.response is not None:
             try:
                 rec['response'] = self.response.evaluate(rec)
             except Exception as exc:
                 rec['response'] = {'action': 'none', 'reason': f'response error: {exc}'}
+        if is_alert:
+            self.episodes.add(rec['family'] or 'Anomaly', rec['familyTitle'] or 'Anomalous traffic',
+                              rec['severity'], rec['dst']['ip'], rec['src']['ip'], rec.get('mitre'))
         self.flows.append(rec)
         if self.learning['active'] and len(self._buf_flows) < self.learning['target']:
             self._buf_flows.append({'src': rec['src'], 'dst': rec['dst'], 'ts': rec['ts']})
@@ -243,6 +273,10 @@ class LivePipeline:
         with self.lock:
             now = time.time()
             connected = self._last_seen > 0 and now - self._last_seen < CONNECTED_S
+            sensors = [{'id': x['id'], 'iface': x['iface'], 'mode': x['mode'],
+                        'connected': now - x['lastTs'] < CONNECTED_S, 'lastSeen': _iso(x['lastTs']),
+                        'flows': x['flows']} for x in sorted(self.sensors.values(), key=lambda x: -x['lastTs'])]
+            ep = self.episodes.snapshot()
             flows = []
             if self.flows:
                 first = self.flows[0]['seq']
@@ -264,6 +298,8 @@ class LivePipeline:
                 'seq': self.seq,
                 'epoch': self.epoch,
                 'sensor': {**self.sensor, 'connected': connected},
+                'sensors': sensors,
+                'status': ep['status'], 'episodes': ep['episodes'],
                 'learning': dict(self.learning),
                 'stats': {'flows': self.total['flows'], 'alerts': self.total['alerts'], 'shed': self.total.get('shed', 0),
                           'bySeverity': dict(self.by_sev), 'byFamily': dict(self.by_family),

@@ -5,6 +5,7 @@
 
 Serves frontend/ and a small JSON API used by the console's "Analyze a capture" button:
 
+    GET  /api/engine             -> engine facts + evaluation reports; POST /api/episodes/<id>/resolve
     Live mode: POST /api/ingest, GET /api/live, POST /api/live/learn|reset, /api/blocks*, /api/response/*
     GET  /api/health             -> {"ok": true, ...}
     POST /api/analyze?name=x.csv  body: a CICFlowMeter CSV -> the same payload shape as one
@@ -29,7 +30,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
 
 from engine import MavisEngine  # noqa: E402
-from engine.frontend import build_payload  # noqa: E402
+from engine.frontend import build_payload, engine_meta  # noqa: E402
 from live.pipeline import LivePipeline  # noqa: E402
 
 MAX_INGEST_BYTES = 20 * 1024 * 1024
@@ -43,6 +44,7 @@ MAX_ROWS = 1_000_000
 ENGINE = None
 LOCK = threading.Lock()  # torch / sklearn scoring is not worth running concurrently on a laptop
 COUNTER = {'n': 0}
+ENGINE_INFO = {}
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -105,6 +107,8 @@ class Handler(SimpleHTTPRequestHandler):
                                                            'features': len(ENGINE.features)},
                                     'maxRows': MAX_ROWS, 'maxBytes': MAX_BYTES,
                                     'live': True, 'response': RESPONSE is not None})
+        if path == '/api/engine':
+            return self._json(200, engine_info())
         if path == '/api/live':
             try:
                 since = int(parse_qs(url.query).get('since', ['0'])[0])
@@ -184,6 +188,12 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         url = urlparse(self.path)
+        parts = url.path.strip('/').split('/')
+        if len(parts) == 4 and parts[:2] == ['api', 'episodes'] and parts[3] == 'resolve':
+            try:
+                return self._json(200, {'episode': LIVE.episodes.resolve(unquote(parts[2]))})
+            except KeyError as exc:
+                return self._json(404, {'error': str(exc).strip('"\'')})
         if url.path.startswith('/api/live') or url.path == '/api/ingest':
             return self._live_post(url.path)
         if url.path.startswith('/api/blocks') or url.path.startswith('/api/response/'):
@@ -212,6 +222,18 @@ class Handler(SimpleHTTPRequestHandler):
         payload['elapsed_s'] = round(time.time() - t0, 2)
         payload['truncated'] = len(df) >= MAX_ROWS
         return self._json(200, payload)
+
+
+def engine_info():
+    """Engine facts for the console's Models / Settings views, plus the saved evaluation reports."""
+    if 'meta' not in ENGINE_INFO:
+        def rj(name):
+            f = ROOT / 'reports' / name
+            return json.loads(f.read_text()) if f.exists() else None
+        ENGINE_INFO['meta'] = {**engine_meta(ENGINE),
+                               'evaluation': {'engine': rj('engine_evaluation.json'),
+                                              'anomaly': rj('evaluation_anomaly.json')}}
+    return ENGINE_INFO['meta']
 
 
 def load_response():

@@ -1,11 +1,12 @@
-// Settings: viewer preferences only. They are stored in this browser.
+// Settings: appearance, density, motion, sound, learning target and the response policy.
+// Preferences are stored in this browser; response settings are stored by the local server.
 import { html, mount, on, $ } from '../core/dom.js';
 import { store } from '../core/store.js';
 import { toast, confirmDialog } from '../components/overlays.js';
-import { fmtPct, fmtInt } from '../core/format.js';
-import { snapshot, engine, budgets, currentBudget, captures, apiAvailable, responseConfig, updateResponseConfig, responseAudit, blocks, unblockIp } from '../data/index.js';
+import { enableSound, beep } from '../components/alarm.js';
 import { fmtTime } from '../core/format.js';
-import { pageHead, remount } from './common.js';
+import { apiAvailable, responseConfig, updateResponseConfig, responseAudit, blocks, unblockIp } from '../data/index.js';
+import { pageHead } from './common.js';
 
 const group = (title, desc, body) => html`
   <section class="set-group" aria-labelledby="sg-${title.replace(/\W/g, '')}">
@@ -31,7 +32,7 @@ const FAMILIES = ['BruteForce', 'PortScan', 'WebAttack', 'DoS', 'Bot', 'Infiltra
 function responseForm(c) {
   const a = c.autoRules || {};
   return html`
-    ${radios('resp-mode', 'Mode', c.mode, [['suggest', 'Suggest', 'Recommend blocks, never act'], ['approve', 'Approve', 'Queue blocks for an analyst'], ['auto', 'Auto', 'Block automatically when auto-rules match']])}
+    ${radios('resp-mode', 'Response mode', c.mode, [['suggest', 'Suggest', 'Recommend actions, never act'], ['approve', 'Approve', 'Queue blocks for an analyst'], ['auto', 'Auto', 'Act automatically by severity']])}
     <div class="field set-field" style="max-width:320px"><label class="field-label" for="resp-backend">Backend</label>
       <select class="select" id="resp-backend">${[['dry-run', 'Dry-run (records only)'], ['pf', 'pf (macOS firewall)'], ['nftables', 'nftables (Linux)'], ['cloudflare', 'Cloudflare IP Access Rules']].map(([v, l]) => html`<option value="${v}" ${c.backend === v ? html`selected` : ''}>${l}</option>`)}</select>
       <div class="resp-warn" id="resp-warn" ${c.backend === 'dry-run' ? 'hidden' : ''}>This backend changes real firewall rules. Check the allowlist first: a wrong block can cut you off from your own network.</div></div>
@@ -53,13 +54,8 @@ function responseForm(c) {
 
 async function loadResponse(root) {
   const box = $('#resp-box', root);
-  const audBox = $('#audit-box', root);
   if (!box) return;
-  if (!(await apiAvailable())) {
-    const msg = html`<p class="panel-meta">Blocking needs the local server: <code>.venv/bin/python scripts/serve.py</code>. The static site cannot change response settings.</p>`;
-    mount(box, msg); if (audBox) mount(audBox, msg);
-    return;
-  }
+  if (!(await apiAvailable())) { mount(box, html`<p class="panel-meta">Needs the local server: <code>.venv/bin/python scripts/serve.py</code>.</p>`); return; }
   try {
     const cfg = await responseConfig();
     mount(box, responseForm(cfg.config || cfg));
@@ -76,7 +72,7 @@ async function loadBlocks(root) {
   mount(audBox, html`
     <h3 class="field-label">Active and pending blocks</h3>
     ${list.length ? html`<div class="table-wrap"><table class="table"><thead><tr><th>IP</th><th>Reason</th><th>Status</th><th>Expires</th><th></th></tr></thead><tbody>${list.map((x) => html`<tr>
-      <td class="mono">${x.ip}</td><td class="muted" style="white-space:normal">${x.reason}</td><td>${x.status}${x.error ? html` <span class="field-error">${x.error}</span>` : ''}</td>
+      <td class="mono">${x.ip}</td><td class="muted wrap">${x.reason}</td><td>${x.status}${x.error ? html` <span class="field-error">${x.error}</span>` : ''}</td>
       <td class="mono muted">${x.expiresAt ? fmtTime(x.expiresAt, { date: false }) : ''}</td><td class="r"><button class="btn btn-sm" data-resp-unblock="${x.ip}">Unblock</button></td></tr>`)}</tbody></table></div>` : html`<p class="panel-meta">No blocks.</p>`}
     <h3 class="field-label" style="margin-top:12px">Recent audit entries</h3>
     ${audit.length ? html`<div class="audit-list">${audit.map((e) => html`<div>${typeof e === 'string' ? e : `${e.ts ? fmtTime(e.ts, { date: false }) : ''} ${e.event || e.action || ''} ${e.ip || ''} ${e.detail || e.reason || ''}`}</div>`)}</div>` : html`<p class="panel-meta">No audit entries yet.</p>`}`);
@@ -106,71 +102,47 @@ function bindResponse(root) {
   });
 }
 
-function about() {
-  const snap = snapshot(), e = engine();
-  const gen = snap?.generated ? new Date(snap.generated).toISOString().replace('T', ' ').slice(0, 16) + ' UTC' : 'unknown';
-  const uploads = captures().filter((c) => c.upload).length;
-  return html`
-    <dl class="kv">
-      <dt>Alert budget (default)</dt><dd class="mono">${fmtPct(e.alertBudgetFpr, 2)} <span class="muted">false alerts on benign calibration flows</span></dd>
-      <dt>Known-attack threshold</dt><dd class="mono">attack probability ≥ ${e.thresholds.known.toFixed(3)}</dd>
-      <dt>Novel threshold</dt><dd class="mono">anomaly percentile ≥ ${e.thresholds.novel.toFixed(5)}</dd>
-      <dt>Detector vote</dt><dd class="mono">above the ${fmtPct(e.votePercentile, 0)} benign percentile</dd>
-      <dt>Features</dt><dd class="mono">${fmtInt(e.features.length)}</dd>
-      <dt>Attack classes</dt><dd>${e.classes.filter((c) => c !== 'Benign').join(', ')}</dd>
-      <dt>Snapshot date</dt><dd class="mono">${gen}</dd>
-      <dt>Source</dt><dd>${snap?.source || 'n/a'}</dd>
-      <dt>Captures loaded</dt><dd class="mono">${captures().length - uploads} files${uploads ? ` + ${uploads} upload${uploads === 1 ? '' : 's'} (this session only)` : ''}</dd>
-      <dt>Regenerate</dt><dd><code>python scripts/export_frontend.py</code> <span class="muted">after <code>python scripts/build_engine.py</code>; writes <code>frontend/data/mavis.json</code></span></dd>
-      <dt>Live analysis</dt><dd><code>python scripts/serve.py</code> <span class="muted">then open http://localhost:8000</span></dd>
-    </dl>`;
+function render(root) {
+  const p = store.prefs;
+  mount(root, html`
+    ${pageHead({ title: 'Settings', sub: 'Display preferences stay in this browser. Response settings are stored by the local server.' })}
+    <div class="settings">
+      ${group('Appearance', 'How the console looks.', html`
+        ${radios('appearance', 'Theme', p.appearance, [['light', 'Light', 'Paper surfaces, the default'], ['dark', 'Dark', 'Low light and night shifts'], ['system', 'System', 'Follow the device setting']])}
+        ${radios('density', 'Row density', p.density, [['comfortable', 'Comfortable', '40px rows'], ['compact', 'Compact', '32px rows']])}
+        ${radios('motion', 'Motion', p.motion, [['system', 'Follow device', 'Respects reduced-motion'], ['reduced', 'Reduced', 'No flashing banner, no moving particles']])}`)}
+      ${group('Alarm sound', 'A two-tone beep every 5 seconds while an attack is active and not acknowledged.', html`
+        ${toggle('sound', 'Sound', 'Same switch as the top bar. Browsers need one click to start audio.', p.sound)}
+        <div><button class="btn btn-sm" data-beep>Test the beep</button></div>`)}
+      ${group('Learning', 'How much normal traffic to collect when you press Start learning on the Overview.', html`
+        <div class="field set-field" style="max-width:220px"><label class="field-label" for="pref-learn">Target flows</label>
+          <input class="input" id="pref-learn" type="number" min="50" max="20000" step="50" value="${p.learnTarget}" data-pref-num="learnTarget">
+          <span class="field-hint">Learning applies automatically at this target.</span></div>`)}
+      ${group('Response', 'What MAVIS may do about an attacking address. Needs the local server.', html`<div id="resp-box"><p class="panel-meta">Loading...</p></div>`)}
+      ${group('Blocks & audit', 'Blocks in force and the log of every response decision.', html`<div id="audit-box"></div>`)}
+      ${group('Reset', 'Return every display preference to its default.', html`<div><button class="btn" data-action="reset">Reset preferences</button></div>`)}
+    </div>`);
+  loadResponse(root);
+  bindResponse(root);
+  const saved = (label) => toast(`${label} saved`);
+  on(root, 'change', '[data-pref]', (_e, i) => { store.setPref(i.name, i.value); saved('Preference'); });
+  on(root, 'change', '[data-pref-bool]', (_e, i) => {
+    if (i.dataset.prefBool === 'sound' && i.checked && !enableSound()) { i.checked = false; toast('This browser blocked audio', { tone: 'error' }); return; }
+    store.setPref(i.dataset.prefBool, i.checked);
+    if (i.dataset.prefBool === 'sound' && i.checked) beep();
+    saved('Preference');
+  });
+  on(root, 'change', '[data-pref-num]', (_e, i) => { store.setPref(i.dataset.prefNum, Math.max(50, Math.min(20000, +i.value || 400))); saved('Learning target'); });
+  on(root, 'click', '[data-beep]', () => { if (enableSound()) beep(); else toast('This browser blocked audio', { tone: 'error' }); });
+  on(root, 'click', '[data-action="reset"]', async () => {
+    if (!(await confirmDialog({ title: 'Reset all preferences?', body: 'Theme, density, motion, sound and learning target go back to their defaults.', confirmLabel: 'Reset preferences' }))) return;
+    store.resetPrefs();
+    toast('Preferences reset');
+    const fresh = document.createElement('div');
+    fresh.className = root.className;
+    root.replaceWith(fresh);   // new element so delegated listeners never stack
+    render(fresh);
+  });
 }
 
-export default {
-  title: 'Settings',
-  render(root) {
-    const p = store.prefs;
-    mount(root, html`
-      ${pageHead({ title: 'Settings', sub: 'Preferences are stored in this browser only. MAVIS has no accounts, so nothing here is shared.' })}
-      <div class="settings">
-        ${group('Appearance', 'How the console looks.', html`
-          ${radios('appearance', 'Theme', p.appearance, [['light', 'Light', 'Paper surfaces, the default'], ['dark', 'Dark', 'Low light and night shifts'], ['system', 'System', 'Follow the device setting']])}
-          ${radios('motion', 'Motion', p.motion, [['system', 'Follow device', 'Respects reduced-motion'], ['reduced', 'Reduced', 'Turn off animation']])}`)}
-        ${group('Tables', 'Density and paging for event tables.', html`
-          ${radios('density', 'Row density', p.density, [['comfortable', 'Comfortable', '40px rows'], ['compact', 'Compact', '32px rows']])}
-          <div class="field set-field" style="max-width:220px"><label class="field-label" for="pref-page">Rows per page</label>
-            <select class="select" id="pref-page" data-pref-num="pageSize">${[10, 25, 50, 100].map((n) => html`<option value="${n}" ${p.pageSize === n ? html`selected` : ''}>${n}</option>`)}</select></div>`)}
-        ${group('Alert budget', 'How many false alerts you accept on benign traffic.', html`
-          <div class="field set-field" style="max-width:320px"><label class="field-label" for="pref-budget">False-positive budget</label>
-            <select class="select" id="pref-budget">${budgets().map((b) => html`<option value="${b}" ${currentBudget() === b ? html`selected` : ''}>${fmtPct(b, b < 0.01 ? 2 : 1)}${b === engine().alertBudgetFpr ? ' (engine default)' : ''}</option>`)}</select>
-            <span class="field-hint">Same setting as the top bar. A lower budget means fewer alerts and more missed attacks. The engine’s calibrated thresholds for each budget are re-applied to the exported flows; no model is re-run. Full-capture totals stay at the default budget.</span></div>`)}
-        ${group('Charts', 'Chart display.', toggle('chartGrid', 'Grid lines', 'Faint horizontal guides behind charts', p.chartGrid))}
-        ${group('Notifications', 'Which alerts appear in the bell menu.', html`
-          ${toggle('notifyCritical', 'Critical events', 'Critical alerts from the exported sample', p.notifyCritical)}
-          ${toggle('notifyHigh', 'High events', 'High alerts from the exported sample', p.notifyHigh)}
-          <p class="panel-meta">Notifications are in-app only. MAVIS does not send email or push messages.</p>`)}
-        ${group('Response', 'What MAVIS may do about an attacking address. Applies to live mode and needs the local server.', html`<div id="resp-box"><p class="panel-meta">Loading…</p></div>`)}
-        ${group('Blocks & audit', 'Blocks in force and the log of every response decision.', html`<div id="audit-box"></div>`)}
-        ${group('About this engine', 'What produced the numbers in this console.', about())}
-        ${group('Reset', 'Return every preference to its default.', html`<div><button class="btn" data-action="reset">Reset preferences</button></div>`)}
-      </div>`);
-
-    loadResponse(root);
-    bindResponse(root);
-    const saved = (label) => toast(`${label} saved`);
-    on(root, 'change', '[data-pref]', (_e, i) => { store.setPref(i.name, i.value); saved('Preference'); });
-    on(root, 'change', '[data-pref-bool]', (_e, i) => { store.setPref(i.dataset.prefBool, i.checked); saved(i.closest('label').querySelector('b').textContent); });
-    on(root, 'change', '#pref-budget', (_e, sel) => { store.setPref('alertBudget', +sel.value === engine().alertBudgetFpr ? null : +sel.value); saved('Alert budget'); });
-    on(root, 'change', '[data-pref-num]', (_e, s) => { store.setPref(s.dataset.prefNum, +s.value); saved('Rows per page'); });
-    on(root, 'click', '[data-action="reset"]', async () => {
-      const ok = await confirmDialog({ title: 'Reset all preferences?', body: 'Theme, motion, density, alert budget, charts and notification choices go back to their defaults. Your notes and event statuses are kept.', confirmLabel: 'Reset preferences' });
-      if (!ok) return;
-      store.resetPrefs();
-      toast('Preferences reset');
-      remount(this, root);
-    });
-    return store.subscribe((ev) => {
-      if (ev.type === 'pref' && (ev.key === 'alertBudget' || ev.key === '*')) { const sel = $('#pref-budget', root); if (sel) sel.value = String(currentBudget()); }
-    });
-  },
-};
+export default { title: 'Settings', render };

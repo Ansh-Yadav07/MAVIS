@@ -8,6 +8,7 @@ let state = {
   available: false, seq: 0, sensor: { connected: false }, learning: { active: false, flows: 0, target: 3000 },
   stats: { flows: 0, alerts: 0, bySeverity: {}, byFamily: {}, byVerdict: {}, timeline: [] },
   hosts: [], insider: [], blocks: [], pending: [], response: null, error: null, updated: 0,
+  status: { level: 'calm', since: null, headline: '', activeEpisodes: 0, alertsPerSec: 0 }, episodes: [], sensors: [],
 };
 let buffer = [];                 // live flows, oldest first
 const byId = new Map();
@@ -19,12 +20,14 @@ const notify = () => subs.forEach((fn) => { try { fn(state); } catch (e) { conso
 
 export const liveState = () => state;
 export const liveFlows = () => buffer;
+export const liveStatus = () => state.status;
 export const liveFlowById = (id) => byId.get(id) || null;
 
 function merge(flows) {
   for (const f of flows) {
-    const flow = { ...f, day: 'live', status: f.status || (f.verdict === 'normal' ? 'Closed' : 'New'), note: '' };
-    if (byId.has(flow.id)) { buffer[buffer.findIndex((x) => x.id === flow.id)] = flow; } else buffer.push(flow);
+    const old = byId.get(f.id);
+    const flow = { ...f, day: 'live', _rx: old?._rx || Date.now() };   // _rx: when the console first saw it (graph windows use it)
+    if (old) { buffer[buffer.indexOf(old)] = flow; } else buffer.push(flow);
     byId.set(flow.id, flow);
   }
   if (buffer.length > CAP) {
@@ -55,9 +58,10 @@ export async function pollNow() {
       stats: d.stats || state.stats, hosts: d.hosts || [], insider: d.insider || [],
       blocks: blocks.filter((b) => b.status !== 'pending'), pending: blocks.filter((b) => b.status === 'pending'),
       response: d.response || state.response,
+      status: d.status || state.status, episodes: d.episodes || [], sensors: d.sensors || [],
     };
   } catch (e) {
-    state = { ...state, available: false, error: e.message, sensor: { connected: false } };
+    state = { ...state, available: false, error: e.message, sensor: { connected: false }, sensors: [] };
   } finally { busy = false; }
   notify();
 }
@@ -82,6 +86,7 @@ const refresh = async (res) => { await pollNow(); return res; };
 export const liveLearn = (action, target) => post('api/live/learn', action === 'start' ? { action, target: target || 3000 } : { action }).then(refresh);
 export const liveReset = () => post('api/live/reset', {}).then((r) => { buffer = []; byId.clear(); state = { ...state, seq: 0 }; return refresh(r); });
 
+export const resolveEpisode = (id) => post(`api/episodes/${encodeURIComponent(id)}/resolve`, {}).then(refresh);
 export const blocks = () => call('api/blocks').catch(() => ({ blocks: [], pending: [] }));
 export const blockIp = (ip, reason, ttlMinutes, alertId) => post('api/blocks', { ip, reason, ...(ttlMinutes ? { ttlMinutes } : {}), ...(alertId ? { alertId } : {}) }).then(refresh);
 export const unblockIp = (ip) => post(`api/blocks/${encodeURIComponent(ip)}`, null, 'DELETE').then(refresh);

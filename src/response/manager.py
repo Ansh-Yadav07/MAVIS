@@ -260,7 +260,10 @@ class ResponseManager:
             return b
         now = self.clock()
         self._recent = [t for t in self._recent if now - t < 60]
-        if len(self._recent) >= self._cfg["maxBlocksPerMinute"]:
+        # The cap protects real firewalls from a runaway feedback loop; dry-run blocks change nothing,
+        # so they never count against it (a demo can show several attacks in a row).
+        dry = self._cfg.get("backend", "dry-run") == "dry-run"
+        if not dry and len(self._recent) >= self._cfg["maxBlocksPerMinute"]:
             b.update(status="failed", error="rate limit: maxBlocksPerMinute exceeded")
             self._log("refuse", ip, source, "rate limit", "refused")
             self._tell("MAVIS: block rate limit hit; refused %s (%s)" % (ip, reason))

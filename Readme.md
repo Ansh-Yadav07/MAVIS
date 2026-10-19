@@ -105,7 +105,7 @@ python -m pytest tests
 ```bash
 .venv/bin/python scripts/serve.py                         # console + API on http://localhost:8000
 sudo .venv/bin/python scripts/sensor.py --iface en0       # watch your network (lo0 = localhost demo)
-.venv/bin/python scripts/demo_traffic.py portscan         # safe demo traffic against localhost only
+.venv/bin/python scripts/simulate.py story                 # simulated attacks: posts flow records to the local API only
 ```
 
 - Open **Live Monitor** in the console.

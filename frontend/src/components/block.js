@@ -3,7 +3,7 @@
 import { html, on, $ } from '../core/dom.js';
 import { icon } from './icons.js';
 import { toast, confirmDialog } from './overlays.js';
-import { blockIp } from '../data/index.js';
+import { blockIp, unblockIp } from '../data/index.js';
 
 export const blockControl = (ip, family, alertId) => html`
   <div class="block-ctl" data-block-ip="${ip}" data-alert="${alertId || ''}">
@@ -33,4 +33,15 @@ export function bindBlock(root) {
       btn.disabled = false;
     }
   });
+}
+
+// Block or unblock an address from a table row or side panel (asks first when blocking).
+export async function toggleBlock(ip, isBlocked, reason = 'Blocked from the console') {
+  try {
+    if (isBlocked) { await unblockIp(ip); toast(`${ip} unblocked`); return; }
+    const ok = await confirmDialog({ title: `Block ${ip}?`, body: 'The response backend applies this block (dry-run by default). Allowlisted and local addresses are refused.', confirmLabel: 'Block', tone: 'danger' });
+    if (!ok) return;
+    const b = await blockIp(ip, reason, 60);
+    toast(`${ip} ${b?.status === 'pending' ? 'queued for approval' : 'blocked'}`);
+  } catch (e) { toast(e.message, { tone: 'error' }); }
 }

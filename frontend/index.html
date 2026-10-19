@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>MAVIS</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-<meta name="description" content="MAVIS, the Multi-Attack Vector Intelligence System: an analyst console for ML-based network anomaly detection on CIC-IDS2017.">
+<meta name="description" content="MAVIS, the Multi-Attack Vector Intelligence System: a live network anomaly detection console with an automatic response.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
@@ -15,7 +15,7 @@
 <link rel="stylesheet" href="styles/components.css">
 <link rel="stylesheet" href="styles/charts.css">
 <link rel="stylesheet" href="styles/views.css">
-<link rel="stylesheet" href="styles/live.css">
+<link rel="stylesheet" href="styles/console.css">
 </head>
 <body>
 <!-- MAVIS:BODY:START -->
@@ -24,8 +24,8 @@
   <aside class="rail" id="rail" aria-label="Primary"></aside>
   <div class="rail-scrim" data-action="close-nav"></div>
   <div class="main-col">
+    <div id="alarm"></div>
     <header class="topbar" id="topbar"></header>
-    <div class="provenance" id="provenance" role="status" aria-live="polite"></div>
     <main class="view" id="main" tabindex="-1"></main>
   </div>
 </div>

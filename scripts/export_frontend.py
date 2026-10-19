@@ -1,7 +1,10 @@
-"""Run the MAVIS engine over every capture day and write the console snapshot.
+"""Write the console's static engine facts.
 
-    python scripts/export_frontend.py                    # full files -> frontend/data/mavis.json
-    python scripts/export_frontend.py --max-rows 50000   # quicker, first rows of each file
+    python scripts/export_frontend.py                    # engine meta + evaluation -> frontend/data/engine.json
+    python scripts/export_frontend.py --full             # old CIC snapshot -> frontend/data/mavis.json
+    python scripts/export_frontend.py --full --max-rows 50000   # quicker, first rows of each file
+
+The default file is the fallback for GET /api/engine when the console is served without the API.
 
 The snapshot holds real engine output (verdicts, scores, explanations, incidents, drift) for a
 readable sample of flows per day, the full-day aggregates, and the evaluation reports, so the
@@ -36,13 +39,24 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('--raw-dir', type=Path, default=ROOT / 'dataset')
     p.add_argument('--engine', type=Path, default=ROOT / 'results' / 'engine')
-    p.add_argument('--out', type=Path, default=ROOT / 'frontend' / 'data' / 'mavis.json')
+    p.add_argument('--full', action='store_true', help='write the full capture snapshot (mavis.json) instead')
+    p.add_argument('--out', type=Path, default=None)
     p.add_argument('--max-rows', type=int, default=None)
     p.add_argument('--per-family', type=int, default=60, help='exported alerts per threat family per file')
     p.add_argument('--normals', type=int, default=80, help='exported normal flows per file')
     a = p.parse_args()
 
     engine = MavisEngine.load(a.engine)
+    if not a.full:
+        out = a.out or ROOT / 'frontend' / 'data' / 'engine.json'
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps({**engine_meta(engine), 'evaluation': {
+            'engine': read_json(ROOT / 'reports' / 'engine_evaluation.json'),
+            'anomaly': read_json(ROOT / 'reports' / 'evaluation_anomaly.json')}},
+            separators=(',', ':'), default=str))
+        print(f'wrote {out} ({out.stat().st_size / 1e3:.0f} KB)')
+        return
+    a.out = a.out or ROOT / 'frontend' / 'data' / 'mavis.json'
     captures = []
     for path in find_flow_csvs(a.raw_dir, exclude=a.raw_dir / 'processed'):
         day = next((v for k, v in DAYS.items() if path.name.lower().startswith(k.lower())), None)

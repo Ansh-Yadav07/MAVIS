@@ -100,7 +100,8 @@ def test_auto_rules_and_novel(tmp_path):
 
 def test_rate_limit(tmp_path):
     notes = []
-    m, clk, be = mk(tmp_path, maxBlocksPerMinute=2)
+    # the cap guards real firewalls, so test it with a non-dry-run backend (FakeBackend executes nothing)
+    m, clk, be = mk(tmp_path, maxBlocksPerMinute=2, backend="nftables")
     m._notifier = notes.append
     assert m.evaluate(flow(ip="1.0.0.1"))["action"] == "blocked"
     assert m.evaluate(flow(ip="1.0.0.2"))["action"] == "blocked"
@@ -168,3 +169,9 @@ def test_failed_backend_status(tmp_path):
     be.block = lambda ip, ttl: (False, "denied")
     b = m.block("9.9.9.9", "r")
     assert b["status"] == "failed" and b["error"] == "denied" and m.blocks() == []
+
+
+def test_dry_run_blocks_are_not_rate_limited(tmp_path):
+    m, clk, be = mk(tmp_path, maxBlocksPerMinute=2)
+    for i in range(5):
+        assert m.evaluate(flow(ip=f"1.0.0.{i + 1}"))["action"] == "blocked"
