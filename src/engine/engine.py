@@ -45,9 +45,20 @@ class PercentileMap:
         # np.interp needs strictly increasing x: nudge ties apart.
         self.x = np.maximum.accumulate(q) + np.arange(len(q)) * 1e-12
         self.p = _GRID
+        # Scores closer than `tol` count as equal. Without it, very uniform reference traffic
+        # (e.g. learning on localhost) makes float noise flip a flow from the 0th to the 100th
+        # percentile. 1 % of the reference's 1st-99th percentile range, never below a tiny floor.
+        lo, hi = np.interp([0.01, 0.99], _GRID, self.x)
+        self.tol = float(max(0.01 * (hi - lo), 1e-6 * max(1.0, abs(float(np.median(q))))))
 
     def __call__(self, scores):
-        return np.interp(np.asarray(scores, dtype=np.float64), self.x, self.p, left=0.0, right=1.0)
+        v = np.asarray(scores, dtype=np.float64)
+        tol = getattr(self, 'tol', 0.0)  # maps pickled before `tol` existed behave as before
+        if tol <= 0:
+            return np.interp(v, self.x, self.p, left=0.0, right=1.0)
+        # mid-rank within the tolerance band: ties get the middle of their percentile range
+        return 0.5 * (np.interp(v - tol, self.x, self.p, left=0.0, right=1.0)
+                      + np.interp(v + tol, self.x, self.p, left=0.0, right=1.0))
 
 
 def oversample_rare(X, y, min_count=2000, k=5, seed=42):
@@ -184,7 +195,9 @@ class MavisEngine:
         rest = benign_c & ~known_fp
         self.alert_threshold = {
             'known': known_thr,
-            'novel': float(np.quantile(ens_c[rest], 1 - left * benign_c.sum() / rest.sum())),
+            # floor at 1 - budget: ens is a benign percentile, so on well-spread data the quantile already
+            # sits there; on degenerate (near-identical) traffic it would collapse to ~0.5 and flag everything
+            'novel': float(max(np.quantile(ens_c[rest], 1 - left * benign_c.sum() / rest.sum()), 1 - left)),
         }
 
         # drift reference: per-feature decile bins and the benign share in each (ties in discrete
@@ -202,7 +215,7 @@ class MavisEngine:
             kfp = benign_c & (p_known_c >= kt)
             lft = max(b - kfp.sum() / benign_c.sum(), b / 2)
             rst = benign_c & ~kfp
-            self.budget_table[b] = {'known': kt, 'novel': float(np.quantile(ens_c[rst], 1 - lft * benign_c.sum() / rst.sum()))}
+            self.budget_table[b] = {'known': kt, 'novel': float(max(np.quantile(ens_c[rst], 1 - lft * benign_c.sum() / rst.sum()), 1 - lft))}
         self.drift_ref = {}
         for j, f in enumerate(self.features):
             inner = np.unique(edges[:, j])[1:-1]

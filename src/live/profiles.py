@@ -2,6 +2,7 @@
 import ipaddress
 import json
 import threading
+from functools import lru_cache
 from collections import deque
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -66,6 +67,7 @@ def service_class(port):
 _NETS = [ipaddress.ip_network(n) for n in ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '127.0.0.0/8')]
 
 
+@lru_cache(maxsize=65536)
 def is_internal(ip):
     try:
         a = ipaddress.ip_address(str(ip))
@@ -92,7 +94,9 @@ class _Host:
         self.seen = {}          # all observed class -> count (warm period + after)
         self.flows = 0
         self.learned = False
-        self.recent = deque()   # (ts, dst, port) for fan-out
+        self.recent = deque()   # (ts, dst, port, dst_is_internal) for fan-out
+        self.peer_count = {}    # internal dst -> flows in the fan-out window
+        self.port_count = {}    # dst port -> flows in the fan-out window
         self.peak_rate = 0      # learned: most flows to one dst:port in any 10 s window
 
 
@@ -235,12 +239,24 @@ class HostProfiles:
 
             # fan-out sliding window: never subject to warm-up. A host that is new to us and
             # immediately touches dozens of ports or hosts is exactly what a scanner looks like.
-            h.recent.append((ts, dst, port))
+            # Counters are updated incrementally (O(1) per flow). Recomputing the distinct sets
+            # over the whole window for every flow was O(n^2) and froze the server under a flood.
+            internal_dst = is_internal(dst)
+            h.recent.append((ts, dst, port, internal_dst))
+            if internal_dst:
+                h.peer_count[dst] = h.peer_count.get(dst, 0) + 1
+            h.port_count[port] = h.port_count.get(port, 0) + 1
             while h.recent and ts - h.recent[0][0] > FAN_WINDOW:
-                h.recent.popleft()
+                _, d0, p0, i0 = h.recent.popleft()
+                if i0:
+                    h.peer_count[d0] -= 1
+                    if not h.peer_count[d0]:
+                        del h.peer_count[d0]
+                h.port_count[p0] -= 1
+                if not h.port_count[p0]:
+                    del h.port_count[p0]
             if h.recent:
-                peers = {d for _, d, _ in h.recent if is_internal(d)}
-                ports = {p for _, _, p in h.recent}
+                peers, ports = h.peer_count, h.port_count
                 if len(peers) >= 20 or len(ports) >= 50:
                     a = self._alert(f, h, 'fan-out', 'other', 'high', 85,
                                     f'{src} contacted {len(peers)} internal hosts and {len(ports)} ports in 60 s',

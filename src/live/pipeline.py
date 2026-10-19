@@ -17,6 +17,10 @@ INSIDER_KEEP = 200
 PAGE = 500
 TIMELINE_SECONDS = 300
 MAX_EXPLAIN = 25
+# Load shedding: during a flood the sensor can send tens of thousands of flows per second.
+# At most this many per batch get full ML scoring; the rest only feed the cheap volume rules
+# (flood / DDoS / fan-out) and the counters, so the server keeps up and floods are still caught.
+MAX_SCORED = 500
 CONNECTED_S = 5.0
 
 
@@ -73,6 +77,11 @@ class LivePipeline:
             if not rows:
                 return {'accepted': 0, 'alerts': 0, 'seq': self.seq}
             file = self.sensor.get('id') or 'sensor'
+        shed = []
+        if len(rows) > MAX_SCORED:
+            keep = set(np.random.default_rng(len(rows)).choice(len(rows), MAX_SCORED, replace=False).tolist())
+            shed = [r for i, r in enumerate(rows) if i not in keep]
+            rows = [r for i, r in enumerate(rows) if i in keep]
         df = pd.DataFrame(rows)
         if 'Destination Port' not in df.columns:
             for alt in ('Dst Port', 'Dest Port'):
@@ -87,8 +96,11 @@ class LivePipeline:
                 alerts = 0
                 for rec in recs:
                     alerts += self._record(rec, now)
+                if shed:
+                    self._observe_shed(shed, now)
                 done = self.learning.pop('_ready', False)
-                result = {'accepted': len(recs), 'alerts': alerts, 'seq': self.seq}
+                result = {'accepted': len(recs) + len(shed), 'scored': len(recs), 'shed': len(shed),
+                          'alerts': alerts, 'seq': self.seq}
         if done:  # learning reached its target: apply it straight away
             try:
                 self.learn('apply')
@@ -96,6 +108,24 @@ class LivePipeline:
                 with self.lock:
                     self.learning['error'] = str(exc)
         return result
+
+    def _observe_shed(self, rows, now):
+        """Flows not scored by the models: count them and run the volume rules on them."""
+        def pick(r, *keys):
+            for k in keys:
+                if r.get(k) is not None:
+                    return r[k]
+            return None
+        self.total['flows'] += len(rows)
+        self.total['shed'] = self.total.get('shed', 0) + len(rows)
+        t = self.timeline.setdefault(int(now), [0, 0])
+        t[0] += len(rows)
+        for r in rows:
+            f = {'id': None, 'ts': pick(r, 'Timestamp'),
+                 'src': {'ip': pick(r, 'Src IP', 'Source IP'), 'port': pick(r, 'Src Port', 'Source Port')},
+                 'dst': {'ip': pick(r, 'Dst IP', 'Destination IP'), 'port': pick(r, 'Dst Port', 'Destination Port')}}
+            for a in self.profiles.observe(f):
+                self.insider.append(a)
 
     def _score(self, df, file):
         eng = self.engine
@@ -235,7 +265,7 @@ class LivePipeline:
                 'epoch': self.epoch,
                 'sensor': {**self.sensor, 'connected': connected},
                 'learning': dict(self.learning),
-                'stats': {'flows': self.total['flows'], 'alerts': self.total['alerts'],
+                'stats': {'flows': self.total['flows'], 'alerts': self.total['alerts'], 'shed': self.total.get('shed', 0),
                           'bySeverity': dict(self.by_sev), 'byFamily': dict(self.by_family),
                           'byVerdict': dict(self.by_verdict),
                           'timeline': [{'t': _iso(s), 'flows': v[0], 'alerts': v[1]}

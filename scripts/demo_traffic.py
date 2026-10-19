@@ -107,13 +107,19 @@ def bruteforce(a):
 def flood(a):
     url = a.base + '/'
     check_local(urlparse(url).hostname)
-    print(f'flooding {url} for {a.seconds}s with {a.concurrency} workers (localhost only)')
+    print(f'flooding {url} for {a.seconds}s, {a.concurrency} workers, max {a.rate} req/s (localhost only)')
     end, count = time.time() + a.seconds, [0]
+
+    # Capped at --rate requests/s in total (default 300): enough to trip MAVIS's flood rule
+    # (100 flows / 10 s) many times over, without melting the laptop. Failed requests back off.
+    gap = a.concurrency / max(1, a.rate)
 
     def worker():
         while time.time() < end:
-            get(url, 2)
+            t0 = time.time()
+            ok = get(url, 2)
             count[0] += 1
+            time.sleep(max(0.0, gap - (time.time() - t0)) + (0 if ok else 0.5))
 
     ts = [threading.Thread(target=worker) for _ in range(a.concurrency)]
     [t.start() for t in ts]
@@ -143,6 +149,7 @@ def main():
     ap.add_argument('--seconds', type=float)
     ap.add_argument('--port', type=int, default=2222)
     ap.add_argument('--concurrency', type=int, default=50)
+    ap.add_argument('--rate', type=int, default=300, help='flood: max requests per second in total')
     a = ap.parse_args()
     check_local(urlparse(a.base).hostname)
     a.seconds = a.seconds or {'normal': 60, 'bruteforce': 30, 'flood': 20}.get(a.mode, 0)
