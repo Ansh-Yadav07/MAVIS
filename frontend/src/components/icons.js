@@ -3,6 +3,7 @@ import { raw } from '../core/dom.js';
 
 const P = {
   overview: '<path d="M4 13h6V4H4zM14 20h6v-9h-6zM4 20h6v-4H4zM14 7h6V4h-6z"/>',
+  live: '<path d="M3 12h4l2.5-6 4 12 2.5-6H21"/>',
   network: '<circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M12 7v4m0 0-5.5 6.5M12 11l5.5 6.5"/>',
   threat: '<path d="M12 3 4 6v6c0 4.4 3.4 8 8 9 4.6-1 8-4.6 8-9V6z"/><path d="M12 8v5m0 3v.01"/>',
   models: '<path d="M4 7h4m8 0h4M4 17h4m8 0h4"/><rect x="8" y="4" width="8" height="6" rx="1.5"/><rect x="8" y="14" width="8" height="6" rx="1.5"/><path d="M12 10v4"/>',

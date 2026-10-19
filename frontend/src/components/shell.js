@@ -12,6 +12,7 @@ import { flows, flagged, DAYS, budgets, currentBudget, insights, drift, snapshot
 export const NAV = [
   { group: 'Operate', items: [
     { id: 'overview', label: 'Overview', icon: 'overview' },
+    { id: 'live', label: 'Live Monitor', icon: 'live' },
     { id: 'threats', label: 'Threat Detection', icon: 'threat', count: 'open' },
     { id: 'investigations', label: 'Investigations', icon: 'investigations' },
     { id: 'network', label: 'Network Traffic', icon: 'network' },

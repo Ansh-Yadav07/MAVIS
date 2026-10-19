@@ -8,7 +8,10 @@ import { bindChart, hBars } from '../components/charts.js';
 import { sevBadge, ipText, tagEngine, tagEval, SEV_LABEL } from '../components/security.js';
 import { createTable } from '../components/table.js';
 import { openFlowDrawer } from '../components/flow-detail.js';
-import { flagged, summary, timeline, evaluation, currentBudget, engine, DAYS } from '../data/index.js';
+import { mountFlowMap, snapshotModel, liveModel } from '../components/flowmap.js';
+import { store } from '../core/store.js';
+import { go } from '../core/router.js';
+import { flows, apiAvailable, subscribeLive, liveState, flowById, flagged, summary, timeline, evaluation, currentBudget, engine, DAYS } from '../data/index.js';
 import { pageHead, panel, SEV_COLOR, curDay, dayName, scopeText, watch, detectedStrip, miniBars, donut, activityChart, valueBars } from './common.js';
 
 const kpi = (label, value, foot, spark, tag = '') => html`
@@ -67,6 +70,11 @@ export default {
               <a class="btn btn-primary" href="#analyze">Analyze a capture</a>
               <a class="btn" href="#threats">Open alert queue</a>
             </div>
+            <section class="panel ov-flow" aria-label="Network flow">
+              <div class="panel-head"><h2 class="panel-title">Network flow</h2><span class="panel-meta" id="fm-meta"></span><span class="spacer"></span><a class="linklike" href="#live">Live Monitor</a></div>
+              <div class="panel-body"><div class="fm-host" id="fm-host"></div>
+                <div class="legend-row" id="fm-legend"></div></div>
+            </section>
           </section>
           <section class="ov-latest panel" aria-label="Latest detections">
             <div class="panel-head"><h2 class="panel-title">Latest detections</h2><span class="panel-meta">highest risk per attack type</span></div>
@@ -142,8 +150,34 @@ export default {
       });
     };
 
+    let map = null, stopLive = null, lastMap = 0;
+    const LIVE_WINDOW = 600;
+    const drawMap = () => {
+      const host = $('#fm-host', root);
+      if (!host) return;
+      const ls = liveState();
+      const liveOn = ls.available && ls.sensor?.connected && ls.stats.flows > 0;
+      const list = liveOn ? flows({ day: 'live' }).slice(-LIVE_WINDOW) : flows(curDay() ? { day: curDay() } : {});
+      const model = (liveOn ? liveModel : snapshotModel)(list);
+      $('#fm-meta', root).textContent = liveOn ? `live · last ${fmtInt(list.length)} flows · ${ls.sensor.iface || 'sensor'}` : 'CIC-IDS2017 snapshot · exported sample';
+      mount($('#fm-legend', root), html`<span class="legend-item"><i class="swatch" style="background:var(--ink-3)"></i>Normal</span>${['high', 'critical'].map((k) => html`<span class="legend-item"><i class="swatch" style="background:${SEV_COLOR[k]}"></i>${SEV_LABEL[k]}</span>`)}<span class="legend-item panel-meta">width = flows</span>`);
+      map ||= mountFlowMap(host, { onLink: (lk) => {
+        if (liveOn) {
+          const f = [...list].reverse().find((x) => (x.src?.ip || 'unknown') === lk.from && x.id === lk.last) || flowById(lk.last);
+          if (f) openFlowDrawer(f.id);
+        } else if (lk.kind === 'normal') { store.setSession('explorerFilters', { verdict: 'normal' }); go('explorer'); }
+        else { store.session.threatFilters = { sevs: ['critical', 'high', 'medium', 'low'], family: lk.from, mode: '', confidence: '', status: 'all', q: '' }; go('threats'); }
+      } });
+      map.update(model);
+    };
     paint();
+    drawMap();
+    apiAvailable().then((ok) => {
+      if (!ok || !root.isConnected) return;
+      stopLive = subscribeLive(() => { if (Date.now() - lastMap > 3000) { lastMap = Date.now(); drawMap(); } });
+    });
     on(root, 'click', '[data-open]', (_e, b) => openFlowDrawer(b.dataset.open));
-    return watch(paint);
+    const unwatch = watch(() => { paint(); map?.destroy(); map = null; drawMap(); });
+    return () => { unwatch?.(); stopLive?.(); map?.destroy(); };
   },
 };

@@ -9,6 +9,7 @@ import { errorState } from './components/states.js';
 import { loadData } from './data/index.js';
 
 import overview from './views/overview.js';
+import live from './views/live.js';
 import network from './views/network.js';
 import threats from './views/threats.js';
 import explorer from './views/explorer.js';
@@ -19,7 +20,7 @@ import dataset from './views/dataset.js';
 import reports from './views/reports.js';
 import settings from './views/settings.js';
 
-const VIEWS = { overview, threats, investigations, network, models, explorer, dataset, reports, analyze, settings };
+const VIEWS = { overview, live, threats, investigations, network, models, explorer, dataset, reports, analyze, settings };
 Object.entries(VIEWS).forEach(([id, v]) => defineRoute(id, v));
 
 const media = window.matchMedia('(prefers-color-scheme: light)');

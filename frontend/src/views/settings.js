@@ -3,7 +3,8 @@ import { html, mount, on, $ } from '../core/dom.js';
 import { store } from '../core/store.js';
 import { toast, confirmDialog } from '../components/overlays.js';
 import { fmtPct, fmtInt } from '../core/format.js';
-import { snapshot, engine, budgets, currentBudget, captures } from '../data/index.js';
+import { snapshot, engine, budgets, currentBudget, captures, apiAvailable, responseConfig, updateResponseConfig, responseAudit, blocks, unblockIp } from '../data/index.js';
+import { fmtTime } from '../core/format.js';
 import { pageHead, remount } from './common.js';
 
 const group = (title, desc, body) => html`
@@ -23,6 +24,87 @@ const toggle = (key, label, desc, on_) => html`
     <span><b>${label}</b><span class="panel-meta">${desc}</span></span>
     <input class="switch" type="checkbox" role="switch" id="pref-${key}" data-pref-bool="${key}" ${on_ ? html`checked` : ''}>
   </label>`;
+
+const SEVS = ['critical', 'high', 'medium', 'low'];
+const FAMILIES = ['BruteForce', 'PortScan', 'WebAttack', 'DoS', 'Bot', 'Infiltration'];
+
+function responseForm(c) {
+  const a = c.autoRules || {};
+  return html`
+    ${radios('resp-mode', 'Mode', c.mode, [['suggest', 'Suggest', 'Recommend blocks, never act'], ['approve', 'Approve', 'Queue blocks for an analyst'], ['auto', 'Auto', 'Block automatically when auto-rules match']])}
+    <div class="field set-field" style="max-width:320px"><label class="field-label" for="resp-backend">Backend</label>
+      <select class="select" id="resp-backend">${[['dry-run', 'Dry-run (records only)'], ['pf', 'pf (macOS firewall)'], ['nftables', 'nftables (Linux)'], ['cloudflare', 'Cloudflare IP Access Rules']].map(([v, l]) => html`<option value="${v}" ${c.backend === v ? html`selected` : ''}>${l}</option>`)}</select>
+      <div class="resp-warn" id="resp-warn" ${c.backend === 'dry-run' ? 'hidden' : ''}>This backend changes real firewall rules. Check the allowlist first: a wrong block can cut you off from your own network.</div></div>
+    <div class="resp-grid">
+      <div class="field"><label class="field-label" for="resp-ttl">Block duration (minutes)</label><input class="input" id="resp-ttl" type="number" min="1" max="10080" value="${c.ttlMinutes}"></div>
+      <div class="field"><label class="field-label" for="resp-max">Max blocks per minute</label><input class="input" id="resp-max" type="number" min="1" max="100" value="${c.maxBlocksPerMinute}"></div>
+      <div class="field"><label class="field-label" for="resp-sev">Auto: minimum severity</label><select class="select" id="resp-sev">${SEVS.map((v) => html`<option ${a.minSeverity === v ? html`selected` : ''}>${v}</option>`)}</select></div>
+      <div class="field"><label class="field-label" for="resp-conf">Auto: minimum confidence</label><select class="select" id="resp-conf">${['high', 'medium', 'low'].map((v) => html`<option ${a.minConfidence === v ? html`selected` : ''}>${v}</option>`)}</select></div>
+      <div class="field"><label class="field-label" for="resp-votes">Auto: minimum detector votes</label><input class="input" id="resp-votes" type="number" min="1" max="4" value="${a.minVotes ?? 2}"></div>
+    </div>
+    <fieldset class="set-field"><legend class="field-label">Auto-block these attack types</legend>
+      <div class="chips-inline">${FAMILIES.map((f) => html`<label class="chip" style="gap:6px"><input type="checkbox" data-resp-family="${f}" ${(a.families || []).includes(f) ? html`checked` : ''}>${f}</label>`)}</div>
+      <span class="field-hint">Novel (unrecognised) alerts are never auto-blocked. Distributed attacks are never blocked per IP.</span></fieldset>
+    <div class="field"><label class="field-label" for="resp-allow">Allowlist (one address or CIDR per line)</label>
+      <textarea class="textarea" id="resp-allow" rows="4" spellcheck="false">${(c.allowlist || []).join('\n')}</textarea>
+      <span class="field-hint">Never blocked, whatever the engine says. Loopback and this machine are always protected.</span></div>
+    <div><button class="btn btn-primary" data-resp-save>Save response settings</button></div>`;
+}
+
+async function loadResponse(root) {
+  const box = $('#resp-box', root);
+  const audBox = $('#audit-box', root);
+  if (!box) return;
+  if (!(await apiAvailable())) {
+    const msg = html`<p class="panel-meta">Blocking needs the local server: <code>.venv/bin/python scripts/serve.py</code>. The static site cannot change response settings.</p>`;
+    mount(box, msg); if (audBox) mount(audBox, msg);
+    return;
+  }
+  try {
+    const cfg = await responseConfig();
+    mount(box, responseForm(cfg.config || cfg));
+  } catch (e) { mount(box, html`<p class="field-error">Could not load response settings: ${e.message}</p>`); }
+  await loadBlocks(root);
+}
+
+async function loadBlocks(root) {
+  const audBox = $('#audit-box', root);
+  if (!audBox) return;
+  const [b, a] = await Promise.all([blocks(), responseAudit()]);
+  const list = [...(b.blocks || []), ...(b.pending || [])];
+  const audit = (a.audit || a.entries || []).slice(-60).reverse();
+  mount(audBox, html`
+    <h3 class="field-label">Active and pending blocks</h3>
+    ${list.length ? html`<div class="table-wrap"><table class="table"><thead><tr><th>IP</th><th>Reason</th><th>Status</th><th>Expires</th><th></th></tr></thead><tbody>${list.map((x) => html`<tr>
+      <td class="mono">${x.ip}</td><td class="muted" style="white-space:normal">${x.reason}</td><td>${x.status}${x.error ? html` <span class="field-error">${x.error}</span>` : ''}</td>
+      <td class="mono muted">${x.expiresAt ? fmtTime(x.expiresAt, { date: false }) : ''}</td><td class="r"><button class="btn btn-sm" data-resp-unblock="${x.ip}">Unblock</button></td></tr>`)}</tbody></table></div>` : html`<p class="panel-meta">No blocks.</p>`}
+    <h3 class="field-label" style="margin-top:12px">Recent audit entries</h3>
+    ${audit.length ? html`<div class="audit-list">${audit.map((e) => html`<div>${typeof e === 'string' ? e : `${e.ts ? fmtTime(e.ts, { date: false }) : ''} ${e.event || e.action || ''} ${e.ip || ''} ${e.detail || e.reason || ''}`}</div>`)}</div>` : html`<p class="panel-meta">No audit entries yet.</p>`}`);
+}
+
+function bindResponse(root) {
+  on(root, 'change', '#resp-backend', (_e, s) => { $('#resp-warn', root).hidden = s.value === 'dry-run'; });
+  on(root, 'click', '[data-resp-save]', async (_e, btn) => {
+    const num = (id) => +$(id, root).value;
+    const mode = root.querySelector('[name="resp-mode"]:checked')?.value;
+    const backend = $('#resp-backend', root).value;
+    if (backend !== 'dry-run' && !(await confirmDialog({ title: `Use the ${backend} backend?`, body: 'Blocks will change real firewall rules. Make sure the allowlist covers your gateway and your own addresses.', confirmLabel: 'Save', tone: 'danger' }))) return;
+    btn.disabled = true;
+    try {
+      await updateResponseConfig({
+        mode, backend, ttlMinutes: num('#resp-ttl'), maxBlocksPerMinute: num('#resp-max'),
+        allowlist: $('#resp-allow', root).value.split('\n').map((x) => x.trim()).filter(Boolean),
+        autoRules: { minSeverity: $('#resp-sev', root).value, minConfidence: $('#resp-conf', root).value, minVotes: num('#resp-votes'),
+          families: [...root.querySelectorAll('[data-resp-family]:checked')].map((i) => i.dataset.respFamily) },
+      });
+      toast('Response settings saved');
+    } catch (e) { toast(`Not saved: ${e.message}`, { tone: 'error' }); }
+    btn.disabled = false;
+  });
+  on(root, 'click', '[data-resp-unblock]', async (_e, b) => {
+    try { await unblockIp(b.dataset.respUnblock); toast(`${b.dataset.respUnblock} unblocked`); await loadBlocks(root); } catch (e) { toast(e.message, { tone: 'error' }); }
+  });
+}
 
 function about() {
   const snap = snapshot(), e = engine();
@@ -67,10 +149,14 @@ export default {
           ${toggle('notifyCritical', 'Critical events', 'Critical alerts from the exported sample', p.notifyCritical)}
           ${toggle('notifyHigh', 'High events', 'High alerts from the exported sample', p.notifyHigh)}
           <p class="panel-meta">Notifications are in-app only. MAVIS does not send email or push messages.</p>`)}
+        ${group('Response', 'What MAVIS may do about an attacking address. Applies to live mode and needs the local server.', html`<div id="resp-box"><p class="panel-meta">Loading…</p></div>`)}
+        ${group('Blocks & audit', 'Blocks in force and the log of every response decision.', html`<div id="audit-box"></div>`)}
         ${group('About this engine', 'What produced the numbers in this console.', about())}
         ${group('Reset', 'Return every preference to its default.', html`<div><button class="btn" data-action="reset">Reset preferences</button></div>`)}
       </div>`);
 
+    loadResponse(root);
+    bindResponse(root);
     const saved = (label) => toast(`${label} saved`);
     on(root, 'change', '[data-pref]', (_e, i) => { store.setPref(i.name, i.value); saved('Preference'); });
     on(root, 'change', '[data-pref-bool]', (_e, i) => { store.setPref(i.dataset.prefBool, i.checked); saved(i.closest('label').querySelector('b').textContent); });

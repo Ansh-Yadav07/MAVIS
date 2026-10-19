@@ -4,6 +4,9 @@
 // Analyst edits (status, notes) and the alert budget live in the store and are applied here.
 import { datasetProfile } from './dataset-profile.js';
 import { store } from '../core/store.js';
+import { liveFlows, liveFlowById } from './live.js';
+
+export * from './live.js';
 
 export { datasetProfile };
 
@@ -84,13 +87,16 @@ function build() {
 
 // ---------------------------------------------------------------- flows
 // filter: { day, file, upload } (all optional)
+// Live flows (day 'live') come from the sensor already scored by the server: the alert budget is
+// not re-applied to them, and they stay out of the snapshot views unless asked for with day: 'live'.
 export function flows(filter = {}) {
+  if (filter.day === 'live') return liveFlows();
   cache ||= build();
   if (!filter.day && !filter.file && filter.upload == null) return cache;
   return cache.filter((f) => (!filter.day || f.day === filter.day) && (!filter.file || f.file === filter.file)
     && (filter.upload == null || !!f.upload === filter.upload));
 }
-export const flowById = (id) => flows().find((f) => f.id === id) || null;
+export const flowById = (id) => liveFlowById(id) || flows().find((f) => f.id === id) || null;
 export const flagged = (filter) => flows(filter).filter((f) => f.verdict !== 'normal');
 
 // ---------------------------------------------------------------- full-capture aggregates
@@ -167,6 +173,7 @@ export function drift(day) {
 
 // ---------------------------------------------------------------- live analysis (local API)
 let apiState = null;
+export const apiKnown = () => apiState === true;   // synchronous: true once apiAvailable() has resolved
 export async function apiAvailable() {
   if (apiState !== null) return apiState;
   try {

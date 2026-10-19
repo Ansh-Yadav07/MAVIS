@@ -8,7 +8,8 @@ import { icon } from './icons.js';
 import { sevBadge, statusBadge, modelStrip, ipText, scoreBar, tagEngine, modeTag, outcomeTag, riskCell, dayLabel, OUTCOME_TITLE } from './security.js';
 import { openDrawer, toast } from './overlays.js';
 import { MODELS } from '../data/model-registry.js';
-import { STATUS_OPTIONS, engine, FEATURE_KEYS, flowById } from '../data/index.js';
+import { STATUS_OPTIONS, engine, FEATURE_KEYS, flowById, apiKnown, liveState } from '../data/index.js';
+import { blockControl, bindBlock } from './block.js';
 
 export const flowHeadline = (f) => html`
   <div class="flow-head">
@@ -152,6 +153,22 @@ export function bindStatus(root, after) {
   });
 }
 
+// Response decision, insider alerts and the Block action. Shown for live flows and, when the
+// local API is up, for any flow that carries a source address.
+export function responseSection(f) {
+  const ip = f.src?.ip;
+  const ins = (f.insider || []).map((id) => liveState().insider.find((a) => a.id === id)).filter(Boolean);
+  if (!f.response && !ins.length && !(ip && apiKnown())) return '';
+  const blocked = ip && liveState().blocks.some((b) => b.ip === ip);
+  return html`
+    ${f.response ? html`<section class="dsec"><h3 class="section-title">Response decision</h3>
+      <dl class="kv"><dt>Action</dt><dd><span class="tag-plain mono">${f.response.action}</span></dd><dt>Reason</dt><dd>${f.response.reason || '—'}</dd></dl></section>` : ''}
+    ${ins.length ? html`<section class="dsec"><h3 class="section-title">Insider alerts</h3>
+      <ul class="prose" style="margin:0;padding-left:18px">${ins.map((a) => html`<li><b>${a.title}</b> <span class="panel-meta">${a.kind} · ${a.severity}</span><br><span class="panel-meta">${a.detail}</span></li>`)}</ul></section>` : ''}
+    ${ip && apiKnown() ? html`<section class="dsec"><h3 class="section-title">Block source</h3>
+      ${blocked ? html`<p class="panel-meta"><span class="mono">${ip}</span> already has an active block. Manage it in Settings, Blocks &amp; audit.</p>` : blockControl(ip, f.family, f.id)}</section>` : ''}`;
+}
+
 export function openFlowDrawer(id, { onChange } = {}) {
   const f = flowById(id);
   if (!f) return;
@@ -167,6 +184,7 @@ export function openFlowDrawer(id, { onChange } = {}) {
       <section class="dsec"><h3 class="section-title">Why it stands out</h3>${whyList(f)}</section>
       <section class="dsec"><h3 class="section-title">MITRE ATT&amp;CK</h3>${mitreList(f)}</section>
       <section class="dsec"><h3 class="section-title">Recommended actions</h3>${actionList(f)}</section>
+      ${responseSection(f)}
       ${f.category == null ? '' : html`<section class="dsec"><h3 class="section-title">Ground truth</h3>${groundTruth(f)}</section>`}
       <section class="dsec"><h3 class="section-title">Flow</h3>${flowMeta(f)}</section>
       <section class="dsec">${statusSelect(f, 'drawer-status')}${noteField(f, 'drawer-note')}</section>
@@ -176,5 +194,6 @@ export function openFlowDrawer(id, { onChange } = {}) {
       <button class="btn btn-ghost" data-close>Close</button>
     </div>`, { label: `Flow ${f.id}`, onClose: () => onChange?.() });
   bindStatus(el);
+  bindBlock(el);
   on(el, 'click', '[data-open-explorer]', (_e, b) => { el.querySelector('[data-close]').click(); go('explorer', b.dataset.openExplorer); });
 }

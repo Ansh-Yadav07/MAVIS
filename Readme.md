@@ -100,4 +100,19 @@ python -m pytest tests
 - **Analyse in the browser:** run `python scripts/serve.py`, open *Analyze capture* and drop a CICFlowMeter CSV.
 - **Static site:** `frontend/` deploys to Netlify as is and shows the committed engine snapshot; live upload needs `serve.py`.
 
+### Live monitoring
+
+```bash
+.venv/bin/python scripts/serve.py                         # console + API on http://localhost:8000
+sudo .venv/bin/python scripts/sensor.py --iface en0       # watch your network (lo0 = localhost demo)
+.venv/bin/python scripts/demo_traffic.py portscan         # safe demo traffic against localhost only
+```
+
+- Open **Live Monitor** in the console.
+- Click **Start learning** while normal traffic flows, then **Apply** (learn my network) before judging alerts.
+- Insider and lateral-movement alerts compare each host with its own baseline: a new service, role rules in `config/roles.json` (copy from `config/roles.example.json`), and fan-out scans.
+- Blocking is dry-run by default. Set the mode and backend in `config/response.json` (copy from `config/response.example.json`). The pf, nftables and Cloudflare backends need admin rights.
+
+Details and the API are in [docs/LIVE_SPEC.md](docs/LIVE_SPEC.md).
+
 See [docs/DATA.md](docs/DATA.md) for the data sources, how to add your own captures, and every preprocessing step.

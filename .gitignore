@@ -35,3 +35,6 @@ env/
 *.h5
 *.pt
 *.pth
+# Local live-mode settings (copy from the *.example.json files)
+/config/response.json
+/config/roles.json

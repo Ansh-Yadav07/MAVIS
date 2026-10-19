@@ -42,6 +42,15 @@ python scripts/serve.py      # serves frontend/ + /api on http://localhost:8000
 
 The alert budget in the top bar re-applies thresholds the engine calibrated for 0.1 % … 5 % false positives, so verdicts change instantly without re-running models. Analyst edits (status, notes) and preferences stay in this browser's localStorage.
 
+## Live mode
+
+- The **Live Monitor** route (`#live`) shows traffic from `scripts/sensor.py`, polling `api/live` every 1-2 seconds while the tab is visible.
+- The network-flow map on the Overview shows live hosts when the sensor is connected, and the CIC-IDS2017 snapshot otherwise.
+- **Block** buttons appear only when the local API (`scripts/serve.py`) is reachable.
+- The static Netlify site shows the snapshot only; live data needs the local server.
+
+See [docs/LIVE_SPEC.md](../docs/LIVE_SPEC.md) for the API and alert rules.
+
 ## Structure
 
 ```

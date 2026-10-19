@@ -159,6 +159,15 @@ class MavisEngine:
         self.classifier.fit(Xc, yc, sample_weight=weight)
         self.classes_ = list(self.classifier.classes_)
 
+        self._calibrate(X_calib, raw_calib, benign_c, target_fpr, seed)
+        self.meta = {'n_train': int(len(yc)), 'synthetic_rows': added,
+                     'excluded_categories': list(exclude_categories), 'classes': self.classes_}
+        log(f"alert thresholds for a {target_fpr:.1%} budget: p_known >= {self.alert_threshold['known']:.3f}, "
+            f"anomaly percentile >= {self.alert_threshold['novel']:.5f}")
+        return self
+
+    def _calibrate(self, X_calib, raw_calib, benign_c, target_fpr, seed=42):
+        """Alert thresholds, budget table, explanation and drift references from benign flows."""
         # alert thresholds: each path gets half the false-positive budget on benign calibration flows
         self.target_fpr = target_fpr
         pct_c, ens_c = self._percentiles(raw_calib)
@@ -195,9 +204,23 @@ class MavisEngine:
             if len(inner):
                 frac = np.bincount(np.searchsorted(inner, Xb[:, j], side='right'), minlength=len(inner) + 1) / len(Xb)
                 self.drift_ref[f] = (inner, frac)
-        self.meta = {'n_train': int(len(yc)), 'synthetic_rows': added,
-                     'excluded_categories': list(exclude_categories), 'classes': self.classes_}
-        log(f"alert thresholds for a {target_fpr:.1%} budget: p_known >= {self.alert_threshold['known']:.3f}, "
+
+    def recalibrate(self, X, raw=None, target_fpr=None, seed=42, log=print):
+        """"Learn my network": re-fit percentile maps, alert thresholds and drift references on
+        this network's own traffic, treated as normal. The models and the classifier are not
+        retrained; only what counts as unusual *here* changes. Use a capture with no known attacks.
+        """
+        if len(X) < 500:
+            raise ValueError(f"need at least 500 normal flows to recalibrate, got {len(X)}")
+        raw = raw if raw is not None else self.model_scores(X)
+        X = X.reset_index(drop=True)
+        benign = np.ones(len(X), dtype=bool)
+        self.maps = {n: PercentileMap(raw[n]) for n in MODEL_NAMES}
+        pct = np.column_stack([self.maps[n](raw[n]) for n in MODEL_NAMES])
+        self.ens_map = PercentileMap(self._combine(pct))
+        self._calibrate(X, raw, benign, target_fpr or self.target_fpr, seed)
+        self.meta['recalibrated_on'] = int(len(X))
+        log(f"recalibrated on {len(X):,} local flows: p_known >= {self.alert_threshold['known']:.3f}, "
             f"anomaly percentile >= {self.alert_threshold['novel']:.5f}")
         return self
 

@@ -1,0 +1,23 @@
+{
+  "mode": "suggest",
+  "backend": "dry-run",
+  "ttlMinutes": 60,
+  "allowlist": ["127.0.0.0/8", "::1/128", "169.254.0.0/16", "fe80::/10"],
+  "maxBlocksPerMinute": 10,
+  "autoRules": {
+    "minSeverity": "critical",
+    "minConfidence": "high",
+    "minVotes": 2,
+    "families": ["BruteForce", "PortScan", "WebAttack", "DoS", "Bot", "Infiltration"]
+  },
+  "notify": {"slackWebhook": null},
+  "_doc": {
+    "mode": "suggest (only recommend) | approve (queue for analyst) | auto (block when autoRules met)",
+    "backend": "dry-run | pf | nftables | cloudflare (tokens via CLOUDFLARE_API_TOKEN / CLOUDFLARE_ZONE_ID env)",
+    "ttlMinutes": "block lifetime in minutes",
+    "allowlist": "CIDRs never blocked (own machine addresses are always protected too)",
+    "maxBlocksPerMinute": "rate limit; beyond it blocks are refused and a notification is sent",
+    "autoRules": "all must hold for auto mode; severity/confidence use low<medium<high<critical; family 'Novel' is never auto-blocked",
+    "notify.slackWebhook": "prefer the MAVIS_SLACK_WEBHOOK env var; never returned unmasked by the API"
+  }
+}

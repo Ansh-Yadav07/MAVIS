@@ -7,7 +7,8 @@ import { fmtInt, fmtPct } from '../core/format.js';
 import { icon } from '../components/icons.js';
 import { sevBadge, tagEngine, riskCell, dayLabel, infoCallout } from '../components/security.js';
 import { openDrawer, toast } from '../components/overlays.js';
-import { incidents, currentBudget, STATUS_OPTIONS } from '../data/index.js';
+import { blockControl, bindBlock } from '../components/block.js';
+import { incidents, currentBudget, STATUS_OPTIONS, apiKnown } from '../data/index.js';
 import { pageHead } from './common.js';
 
 const ports = (inc) => Object.entries(inc.top_dst_ports || {});
@@ -52,6 +53,7 @@ function openIncident(id, onChange) {
         ${inc.mitre?.length ? html`<div class="chips-inline">${inc.mitre.map((m) => html`<span class="tag-plain">${mitreText(m)}</span>`)}</div>` : html`<p class="panel-meta">No mapping.</p>`}</section>
       <section class="dsec"><h3 class="section-title">Recommended actions</h3>
         ${inc.actions?.length ? html`<ol class="prose" style="margin:0;padding-left:18px">${inc.actions.map((a) => html`<li>${a}</li>`)}</ol>` : html`<p class="panel-meta">None.</p>`}</section>
+      ${inc.src_ip && apiKnown() ? html`<section class="dsec"><h3 class="section-title">Block source</h3>${blockControl(inc.src_ip, inc.threat_family)}</section>` : ''}
       <section class="dsec"><h3 class="section-title">Investigation</h3>
         <div class="field"><label class="field-label" for="inc-status">Status</label>
           <select class="select" id="inc-status">${STATUS_OPTIONS.map((s) => html`<option ${s === inc.status ? html`selected` : ''}>${s}</option>`)}</select>
@@ -67,6 +69,7 @@ function openIncident(id, onChange) {
       <button class="btn btn-ghost" data-close>Close</button>
     </div>`, { label: `Incident ${inc.title || inc.threat_family}`, onClose: onChange });
   const close = () => el.querySelector('[data-close]').click();
+  bindBlock(el);
   on(el, 'change', '#inc-status', (_e, s) => { store.setEdit(inc.id, { status: s.value }); toast(`Incident marked ${s.value.toLowerCase()}`); });
   on(el, 'click', '[data-save]', () => { store.setEdit(inc.id, { note: $('#inc-note', el).value.trim() }); toast('Note saved'); });
   on(el, 'click', '[data-go-alerts]', () => {
