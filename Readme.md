@@ -102,6 +102,14 @@ python -m pytest tests
 
 ### Live monitoring
 
+One command (server + sensor on your Mac's network, asks for your password once):
+
+```bash
+./scripts/start.sh
+```
+
+Or step by step:
+
 ```bash
 .venv/bin/python scripts/serve.py                         # console + API on http://localhost:8000
 sudo .venv/bin/python scripts/sensor.py --iface en0       # watch your network (lo0 = localhost demo)

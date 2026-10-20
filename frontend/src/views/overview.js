@@ -7,6 +7,7 @@ import { toast, confirmDialog } from '../components/overlays.js';
 import { bindChart } from '../components/charts.js';
 import { openFlowDrawer } from '../components/flow-detail.js';
 import { createGraph } from '../components/attackgraph.js';
+import { mountFlowMap, liveModel } from '../components/flowmap.js';
 import { subscribeLive, liveFlows, liveReset, blockedSet } from '../data/index.js';
 import { pageHead, panel, regions, kpi, flowsPerSec, feedRow, rateChart, learningBody, bindLearning } from './common.js';
 
@@ -37,6 +38,12 @@ export default {
       ${pageHead({ title: 'Overview', sub: 'Live traffic from the sensor and simulator, scored by the MAVIS engine.', actions: html`<button class="btn btn-sm" data-reset>Reset live data</button>` })}
       <div id="ov-status"></div>
       <div id="ov-kpi"></div>
+      ${panel({ title: 'Network flow', meta: '', cls: 'ov-flowmap', actions: html`<span class="panel-meta" id="fm-meta">waiting for traffic</span>`,
+        body: html`<div class="fm-host" id="fm-host"></div><div class="legend-row" id="fm-legend">
+          <span class="legend-item"><i class="swatch" style="background:var(--ink-3)"></i>Normal</span>
+          <span class="legend-item"><i class="swatch" style="background:var(--sev-high)"></i>High</span>
+          <span class="legend-item"><i class="swatch" style="background:var(--sev-critical)"></i>Critical</span>
+          <span class="legend-item panel-meta">left: who is talking · right: which service · width = flows · dots = live movement</span></div>` })}
       <div class="ov-grid">
         ${panel({ title: 'Flow rate', meta: 'last 300 s, flows vs alerts per second', cls: 'ov-rate', body: html`<div class="chart" id="ov-chart"></div>
           <div class="legend-row"><span class="legend-item"><i class="swatch" style="background:var(--ink-3)"></i>Flows</span><span class="legend-item"><i class="swatch" style="background:var(--sev-critical)"></i>Alerts</span></div>` })}
@@ -49,6 +56,24 @@ export default {
       </div>`);
     const region = regions(root);
     const graph = createGraph($('#ov-graph', root), { compact: true, onSelect: () => go('graph') });
+    // Flow-movement map: the Mac's own traffic from the sensor (plus simulated flows when the
+    // simulator runs). Redrawn at most every 2 s; the dots animate continuously in between.
+    const FM_WINDOW = 600;
+    let map = null, lastMap = 0;
+    const drawMap = (s) => {
+      const host = $('#fm-host', root);
+      if (!host || Date.now() - lastMap < 2000) return;
+      lastMap = Date.now();
+      const list = liveFlows().slice(-FM_WINDOW);
+      const real = s.sensors?.find((x) => x.mode !== 'sim' && x.connected);
+      const sim = s.sensors?.find((x) => x.mode === 'sim' && x.connected);
+      $('#fm-meta', root).textContent = !list.length
+        ? (real ? `${real.iface} connected · waiting for flows` : 'start the sensor to see your Mac\'s traffic')
+        : `${real ? `Mac sensor ${real.iface}` : 'no Mac sensor'}${sim ? ' + simulator' : ''} · last ${fmtInt(list.length)} flows`;
+      if (!list.length) return;
+      map ||= mountFlowMap(host, { onLink: (lk) => { if (lk.last) openFlowDrawer(lk.last); } });
+      map.update(liveModel(list));
+    };
 
     const paint = (s) => {
       if (!root.isConnected) return;
@@ -63,6 +88,7 @@ export default {
         ${kpi('Active incidents', fmtInt(active), `${(s.episodes || []).length} total`, active ? 'critical' : '')}</div>`);
       bindChart($('#ov-chart', root), (w) => rateChart(w, s.stats.timeline));
       graph.update(s);
+      drawMap(s);
       const alerts = liveFlows().filter((f) => f.verdict !== 'normal').slice(-8).reverse();
       region('ov-feed', alerts.map((f) => f.id).join(), () => alerts.length ? alerts.map(feedRow) : html`<li class="panel-body panel-meta">No alerts yet. Normal traffic is not listed.</li>`);
       region('ov-sensors', JSON.stringify(s.sensors), () => s.sensors?.length ? s.sensors.map(sensorRow) : html`<li class="panel-body panel-meta">No sensor has reported yet. Start the sensor or run the simulator (see the commands on the landing page or in the README).</li>`);
@@ -77,6 +103,6 @@ export default {
     });
     bindLearning(root);
     const stop = subscribeLive(paint);
-    return () => { stop(); graph.destroy(); };
+    return () => { stop(); graph.destroy(); map?.destroy(); };
   },
 };

@@ -171,3 +171,13 @@
   .tl-time { grid-column: 2; }
   .timeline li > .tl-body { grid-column: 2; }
 }
+
+/* Network flow map (overview) */
+.ov-flowmap { margin-bottom: var(--s-4); }
+.fm-host { width: 100%; min-width: 0; min-height: 120px; }
+.fm-svg { display: block; max-width: 100%; }
+.fm-label { font-family: var(--font-sans); font-size: 12px; fill: var(--ink-1); }
+.fm-count { font-family: var(--font-mono); font-size: 10.5px; fill: var(--ink-3); }
+.fm-link { transition: stroke-opacity var(--t-fast); }
+.fm-hit { cursor: pointer; outline: none; }
+.fm-hit:focus-visible { stroke: var(--accent-wash); }
