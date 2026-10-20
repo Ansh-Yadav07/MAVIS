@@ -181,3 +181,14 @@
 .fm-link { transition: stroke-opacity var(--t-fast); }
 .fm-hit { cursor: pointer; outline: none; }
 .fm-hit:focus-visible { stroke: var(--accent-wash); }
+
+/* Settings: keep wide tables (blocks) inside their card. Grid items default to min-width:auto,
+   so a long table widened the column past the card edge; let it shrink and scroll/wrap instead. */
+.set-group > * { min-width: 0; }
+.set-group .table td.wrap { white-space: normal; overflow-wrap: anywhere; }
+.set-group .table td:nth-child(3), .set-group .table td:nth-child(4) { white-space: nowrap; }
+.set-group .table { table-layout: fixed; width: 100%; }
+.set-group .table th:nth-child(1) { width: 132px; }
+.set-group .table th:nth-child(3) { width: 70px; }
+.set-group .table th:nth-child(4) { width: 84px; }
+.set-group .table th:nth-child(5) { width: 92px; }
