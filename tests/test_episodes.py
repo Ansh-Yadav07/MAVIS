@@ -209,3 +209,50 @@ def test_simulator_ddos_batch_has_no_network():
     assert len({f['Dst Port'] for f in scan}) == len(scan) and len({f['Src IP'] for f in scan}) == 1
     assert any(f['Dst IP'] == '192.168.1.50' and f['Dst Port'] == 5432 for f in ins)
     assert simulate.SENSOR['mode'] == 'sim'
+
+
+def test_novel_alerts_join_the_open_incident_on_their_target():
+    clk = Clock()
+    tr = EpisodeTracker(FakeResponse('suggest'), clock=clk)
+    feed(tr, clk, 3, 20)                                            # DDoS on 192.168.1.10
+    for i in range(10):                                             # same bots, seen as "Novel" by the anomaly path
+        tr.add('Novel', 'Unknown anomalous behaviour', 'critical', '192.168.1.10', f'203.0.113.{i + 1}')
+    ep = only(tr)
+    assert ep['family'] == 'DDoS' and ep['sources'] >= 30
+
+
+def test_named_alert_from_a_known_source_joins_its_incident():
+    clk = Clock()
+    tr = EpisodeTracker(FakeResponse('suggest'), clock=clk)
+    for _ in range(3):
+        tr.add('BruteForce', 'Credential brute force', 'critical', '10.0.0.5', '198.51.100.7', rule=True)
+    for _ in range(3):  # the classifier calls a few of the same attacker's flows WebAttack
+        tr.add('WebAttack', 'Web application attack', 'high', '10.0.0.5', '198.51.100.7')
+    assert only(tr)['family'] == 'BruteForce'
+    for _ in range(3):  # a different source on the same target is a separate incident
+        tr.add('WebAttack', 'Web application attack', 'high', '10.0.0.5', '203.0.113.50')
+    assert len(tr.snapshot()['episodes']) == 2
+
+
+def test_scattered_false_positives_do_not_open_an_incident():
+    clk = Clock()
+    tr = EpisodeTracker(FakeResponse('suggest'), clock=clk)
+    for _ in range(6):  # one stray model alert every 20 s on the same target
+        tr.add('WebAttack', 'Web application attack', 'high', '192.168.1.5', '192.168.1.20')
+        clk.t += 20
+    assert tr.snapshot()['episodes'] == []
+    for _ in range(3):  # three within a few seconds do
+        tr.add('WebAttack', 'Web application attack', 'high', '192.168.1.5', '192.168.1.20')
+        clk.t += 1
+    assert len(tr.snapshot()['episodes']) == 1
+
+
+def test_novel_incident_is_upgraded_when_the_attack_is_named():
+    clk = Clock()
+    tr = EpisodeTracker(FakeResponse('suggest'), clock=clk)
+    for i in range(5):  # first flows: only the anomaly path fires
+        tr.add('Novel', 'Unknown anomalous behaviour', 'critical', '192.168.1.10', f'203.0.113.{i + 1}')
+    feed(tr, clk, 2, 30)  # then the DDoS rule names it (different bots)
+    ep = only(tr)
+    assert ep['family'] == 'DDoS'
+    assert any(a['kind'] == 'identified' for a in ep['actions'])

@@ -38,7 +38,7 @@ DDOS_SOURCES = (60, 300, 1000)
 FAMILY = {'office': 'Benign', 'insider': 'Benign', 'ddos': 'DDoS', 'dos': 'DoS', 'portscan': 'PortScan',
           'bruteforce': 'BruteForce', 'webattack': 'WebAttack', 'botnet': 'Bot'}
 LEVEL = {'low': 0, 'medium': 1, 'high': 2}
-OFFICE_PORTS = np.array([443, 443, 443, 80, 80, 53, 53, 25, 587, 993])
+OFFICE_PORTS = np.array([443, 443, 443, 80, 80, 53, 53, 465, 465, 123])  # ports with real benign rows in the library
 BASELINE_AGE = timedelta(minutes=15)   # insider baseline is back-dated past the profile warm-up
 
 
@@ -89,9 +89,27 @@ class Simulator:
         g = self.lib[family]
         return g.iloc[self.rng.integers(0, len(g), n)].reset_index(drop=True)
 
+    def _benign_rows(self, dport):
+        """Benign library rows that really used the requested port. Stamping another port onto a benign
+        flow changes a model feature and made calm traffic raise false alerts; when no row used that
+        port, keep a random row with its own port."""
+        g = self.lib['Benign']
+        if not hasattr(self, '_by_port'):
+            self._by_port = g.groupby(g['Destination Port'].astype(int)).indices
+        idx, ports = [], []
+        for p in dport:
+            rows = self._by_port.get(int(p))
+            i = int(self.rng.choice(rows)) if rows is not None and len(rows) else int(self.rng.integers(0, len(g)))
+            idx.append(i)
+            ports.append(int(g['Destination Port'].iat[i]))
+        return g.iloc[idx].reset_index(drop=True), ports
+
     def _flows(self, family, src, dst, sport, dport, ts):
         n = len(src)
-        df = self._rows(family, n)
+        if family == 'Benign':
+            df, dport = self._benign_rows(dport)
+        else:
+            df = self._rows(family, n)
         df['Destination Port'] = np.asarray(dport, dtype=np.float32)
         recs = df.to_dict('records')
         ts = ts if isinstance(ts, list) else [ts] * n

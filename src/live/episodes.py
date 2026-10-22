@@ -17,7 +17,8 @@ RATE_S = 10           # window for flowsPerSec and peak
 STATUS_S = 5          # window for alertsPerSec in the threat status
 ALERT_STATUS_RATE = 20
 KEEP_RESOLVED = 50
-MIN_ALERTS = 3        # an ML flow alert alone is not an episode: needs 3 (rule alerts count at once)
+MIN_ALERTS = 3        # an ML flow alert alone is not an episode: needs 3 within RATE_S seconds (rule alerts count at once).
+                      # Cumulative counting let the ~1 % background false positives slowly open tiny incidents.
 MAX_SOURCES = 5000
 MAX_BLOCK = 10
 UPSTREAM_SOURCES = 20
@@ -45,6 +46,7 @@ class _Episode:
         self.isolated = False
         self.by = None
         self.dirty = True
+        self.ok = False               # confirmed: MIN_ALERTS within RATE_S, or a rule alert
         self.rule = False
 
     def rate(self, now, window=RATE_S):
@@ -80,7 +82,7 @@ class EpisodeTracker:
             now = self.clock()
             sec = int(now)
             self.alert_sec[sec] = self.alert_sec.get(sec, 0) + n
-            ep = self.open.get(key)
+            ep = self.open.get(key) or self._absorber(family, title, mitre, target, source, now)
             if ep is None:
                 self.counter += 1
                 ep = _Episode(f'ep-{self.counter}', key, family, title, sev, target, mitre, now)
@@ -94,6 +96,8 @@ class EpisodeTracker:
                 ep.src[source] = ep.src.get(source, 0) + n
             if SEV[sev] > SEV[ep.severity]:
                 ep.severity = sev
+            if not ep.ok and sum(v for t, v in ep.per_sec.items() if t > sec - RATE_S) >= MIN_ALERTS:
+                ep.ok = True
             if len(ep.per_sec) > RATE_S + 2:
                 for s in [s for s in ep.per_sec if s <= sec - RATE_S - 1]:
                     del ep.per_sec[s]
@@ -101,6 +105,36 @@ class EpisodeTracker:
             ep.dirty = True
             self._update(ep, now)
             return ep
+
+    def _absorber(self, family, title, mitre, target, source, now):
+        """An open incident on the same target that this alert belongs to, if any.
+
+        One attack is often seen two ways: the anomaly detectors call some DDoS flows "Novel", or the
+        classifier names a few brute-force flows "WebAttack". Without merging, each view opens its own
+        incident. A Novel alert joins the biggest open incident on its target; a named alert joins the
+        incident that already contains its source."""
+        live = [e for e in self.open.values() if e.target == target and e.state != 'resolved' and now - e.last < ACTIVE_S]
+        if not live:
+            return None
+        if family in ('Novel', 'Anomaly'):
+            return max(live, key=lambda e: e.flows)
+        if source:
+            for e in sorted(live, key=lambda e: -e.flows):
+                if source in e.src:
+                    return e
+        # The first flows of an attack are often only "Novel" until the classifier or a volume rule
+        # names it: upgrade that incident instead of opening a second one for the same attack.
+        novel = [e for e in live if e.family in ('Novel', 'Anomaly')]
+        if novel:
+            e = max(novel, key=lambda e: e.flows)
+            self.open.pop(e.key, None)
+            e.key, e.family, e.title = (family, target), family, title
+            e.mitre = mitre or e.mitre
+            self.open[e.key] = e
+            e.actions.append({'ts': _iso(now), 'kind': 'identified', 'status': 'executed',
+                              'detail': f'Identified as {title}', 'backend': None})
+            return e
+        return None
 
     # ------------------------------------------------------------------ response
     def _mode(self):
@@ -118,7 +152,7 @@ class EpisodeTracker:
 
     @staticmethod
     def _confirmed(ep):
-        return ep.rule or ep.flows >= MIN_ALERTS
+        return ep.rule or getattr(ep, 'ok', False)
 
     def _respond(self, ep, now):
         """Respond when an episode opens, escalates, or has gathered many more sources."""
@@ -229,7 +263,8 @@ class EpisodeTracker:
             ep.state, ep.since = new, now
             if new == 'resolved':
                 self.open.pop(ep.key, None)
-                self.done.append(ep)
+                if self._confirmed(ep):  # stray, never-confirmed alerts just disappear
+                    self.done.append(ep)
                 if len(self.all) > KEEP_RESOLVED * 2:
                     keep = {e.id for e in self.done} | {e.id for e in self.open.values()}
                     self.all = {k: v for k, v in self.all.items() if k in keep}
