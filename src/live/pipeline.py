@@ -64,6 +64,8 @@ class LivePipeline:
             self.total = {'flows': 0, 'alerts': 0}
             self.by_sev, self.by_family, self.by_verdict = {}, {}, {}
             self.timeline = {}
+            if getattr(self, 'profiles', None) is not None:
+                self.profiles.reset_observed()
             self.episodes.reset()
 
     def _bump(self, d, k, n=1):

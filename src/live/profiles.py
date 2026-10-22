@@ -130,6 +130,20 @@ class HostProfiles:
             h = self.hosts[ip] = _Host(ts)
         return h
 
+    def reset_observed(self):
+        """Forget what was observed since the baseline (first-time service use, scan/flood windows,
+        alert de-duplication), keeping learned baselines. Lets a demo or test be replayed."""
+        with self.lock:
+            self.hosts = {ip: h for ip, h in self.hosts.items() if h.learned}
+            for h in self.hosts.values():
+                h.seen = {}
+                h.recent.clear()
+                h.peer_count.clear()
+                h.port_count.clear()
+            self.last_alert = {}
+            self.pair_recent = {}
+            self.dst_recent = {}
+
     def learn_from(self, flows):
         """Build baselines from flows (console flow objects or dicts with src/dst/ts)."""
         with self.lock:

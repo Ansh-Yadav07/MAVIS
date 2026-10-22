@@ -91,17 +91,19 @@ class Simulator:
 
     def _benign_rows(self, dport):
         """Benign library rows that really used the requested port. Stamping another port onto a benign
-        flow changes a model feature and made calm traffic raise false alerts; when no row used that
-        port, keep a random row with its own port."""
+        flow changes a model feature and made calm traffic raise false alerts. When no row used that
+        port (e.g. the insider's database port 5432), the port is kept: the scenario needs it."""
         g = self.lib['Benign']
         if not hasattr(self, '_by_port'):
             self._by_port = g.groupby(g['Destination Port'].astype(int)).indices
         idx, ports = [], []
         for p in dport:
             rows = self._by_port.get(int(p))
-            i = int(self.rng.choice(rows)) if rows is not None and len(rows) else int(self.rng.integers(0, len(g)))
-            idx.append(i)
-            ports.append(int(g['Destination Port'].iat[i]))
+            if rows is not None and len(rows):
+                idx.append(int(self.rng.choice(rows)))
+            else:
+                idx.append(int(self.rng.integers(0, len(g))))
+            ports.append(int(p))
         return g.iloc[idx].reset_index(drop=True), ports
 
     def _flows(self, family, src, dst, sport, dport, ts):
